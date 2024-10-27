@@ -1,8 +1,8 @@
 import {expect} from 'chai';
-import {SQLConnection} from '../../../../../src/backend/model/database/sql/SQLConnection';
-import {SharingManager} from '../../../../../src/backend/model/database/sql/SharingManager';
+import {SQLConnection} from '../../../../../src/backend/model/database/SQLConnection';
+import {SharingManager} from '../../../../../src/backend/model/database/SharingManager';
 import {SharingDTO} from '../../../../../src/common/entities/SharingDTO';
-import {UserEntity} from '../../../../../src/backend/model/database/sql/enitites/UserEntity';
+import {UserEntity} from '../../../../../src/backend/model/database/enitites/UserEntity';
 import {UserDTO, UserRoles} from '../../../../../src/common/entities/UserDTO';
 import {DBTestHelper} from '../../../DBTestHelper';
 
@@ -82,7 +82,7 @@ describe('SharingManager', (sqlHelper: DBTestHelper) => {
     };
 
     const saved = await sm.createSharing(sharing);
-    const found = await sm.findOne({sharingKey: 'testKey'});
+    const found = await sm.findOne('testKey');
 
     expect(found.id).to.not.equals(null);
     expect(found.sharingKey).to.equals(sharing.sharingKey);

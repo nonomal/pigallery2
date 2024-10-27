@@ -1,13 +1,17 @@
-import { NextFunction, Request, Response } from 'express';
-import { ErrorCodes, ErrorDTO } from '../../common/entities/Error';
-import { Message } from '../../common/entities/Message';
-import { Config, PrivateConfigClass } from '../../common/config/private/Config';
-import { UserDTO, UserRoles } from '../../common/entities/UserDTO';
-import { NotificationManager } from '../model/NotifocationManager';
-import { Logger } from '../Logger';
-import { SharingDTO } from '../../common/entities/SharingDTO';
-import { Utils } from '../../common/Utils';
-import { LoggerRouter } from '../routes/LoggerRouter';
+import {NextFunction, Request, Response} from 'express';
+import {ErrorCodes, ErrorDTO} from '../../common/entities/Error';
+import {Message} from '../../common/entities/Message';
+import {PrivateConfigClass} from '../../common/config/private/PrivateConfigClass';
+import {UserDTO, UserRoles} from '../../common/entities/UserDTO';
+import {NotificationManager} from '../model/NotifocationManager';
+import {Logger} from '../Logger';
+import {SharingDTO} from '../../common/entities/SharingDTO';
+import {Utils} from '../../common/Utils';
+import {LoggerRouter} from '../routes/LoggerRouter';
+import {TAGS} from '../../common/config/public/ClientConfig';
+import {ExtensionConfigWrapper} from '../model/extension/ExtensionConfigWrapper';
+
+const forcedDebug = process.env['NODE_ENV'] === 'debug';
 
 export class RenderingMWs {
   public static renderResult(
@@ -56,7 +60,8 @@ export class RenderingMWs {
       return next();
     }
 
-    const { password, creator, ...sharing } = req.resultPipe as SharingDTO;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const {password, creator, ...sharing} = req.resultPipe as SharingDTO;
     RenderingMWs.renderMessage(res, sharing);
   }
 
@@ -103,16 +108,18 @@ export class RenderingMWs {
     req: Request,
     res: Response
   ): Promise<void> {
-    const originalConf = await Config.original();
+    const originalConf = await ExtensionConfigWrapper.original();
     // These are sensitive information, do not send to the client side
     originalConf.Server.sessionSecret = null;
-    originalConf.Server.Database.enforcedUsers = null;
+    const originalConfJSON = JSON.parse(JSON.stringify(originalConf.toJSON({
+      attachState: true,
+      attachVolatile: true,
+      skipTags: {secret: true} as TAGS
+    }) as PrivateConfigClass));
+
     const message = new Message<PrivateConfigClass>(
       null,
-      originalConf.toJSON({
-        attachState: true,
-        attachVolatile: true,
-      }) as PrivateConfigClass
+      originalConfJSON
     );
     res.json(message);
   }
@@ -125,17 +132,22 @@ export class RenderingMWs {
   ): void {
     if (err instanceof ErrorDTO) {
       if (err.details) {
-        Logger.warn('Handled error:');
-        LoggerRouter.log(Logger.warn, req, res);
-        console.log(err);
+        const logFn = Logger.logLevelForError(err.code)
+        LoggerRouter.log(logFn, req, res);
+        // use separate rendering for detailsStr
+        const d = err.detailsStr;
+        delete err.detailsStr;
+        logFn(err);
+        err.detailsStr = d;
         delete err.details; // do not send back error object to the client side
 
         // hide error details for non developers
         if (
           !(
-            req.session &&
-            req.session['user'] &&
-            req.session['user'].role >= UserRoles.Developer
+            forcedDebug ||
+            (req.session &&
+              req.session['user'] &&
+              req.session['user'].role >= UserRoles.Developer)
           )
         ) {
           delete err.detailsStr;

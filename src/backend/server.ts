@@ -1,28 +1,27 @@
-import { Config } from '../common/config/private/Config';
+import {Config} from '../common/config/private/Config';
 import * as express from 'express';
-import { Request } from 'express';
+import {Request} from 'express';
 import * as cookieParser from 'cookie-parser';
 import * as _http from 'http';
-import { Server as HttpServer } from 'http';
+import {Server as HttpServer} from 'http';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import * as locale from 'locale';
-import { ObjectManagers } from './model/ObjectManagers';
-import { Logger } from './Logger';
-import { LoggerRouter } from './routes/LoggerRouter';
-import { DiskManager } from './model/DiskManger';
-import { ConfigDiagnostics } from './model/diagnostics/ConfigDiagnostics';
-import { Localizations } from './model/Localizations';
-import { CookieNames } from '../common/CookieNames';
-import { Router } from './routes/Router';
-import { PhotoProcessing } from './model/fileprocessing/PhotoProcessing';
+import {ObjectManagers} from './model/ObjectManagers';
+import {Logger} from './Logger';
+import {LoggerRouter} from './routes/LoggerRouter';
+import {ConfigDiagnostics} from './model/diagnostics/ConfigDiagnostics';
+import {Localizations} from './model/Localizations';
+import {CookieNames} from '../common/CookieNames';
+import {Router} from './routes/Router';
+import {PhotoProcessing} from './model/fileaccess/fileprocessing/PhotoProcessing';
 import * as _csrf from 'csurf';
-import * as unless from 'express-unless';
-import { Event } from '../common/event/Event';
-import { QueryParams } from '../common/QueryParams';
-import { ConfigClassBuilder } from 'typeconfig/node';
-import { ConfigClassOptions } from 'typeconfig/src/decorators/class/IConfigClass';
-import { DatabaseType } from '../common/config/private/PrivateConfig';
+import {Event} from '../common/event/Event';
+import {QueryParams} from '../common/QueryParams';
+import {ConfigClassBuilder} from 'typeconfig/node';
+import {ConfigClassOptions} from 'typeconfig/src/decorators/class/IConfigClass';
+import {ServerConfig} from '../common/config/private/PrivateConfig';
+import {unless} from 'express-unless';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const session = require('cookie-session');
@@ -33,42 +32,56 @@ const LOG_TAG = '[server]';
 
 export class Server {
   public onStarted = new Event<void>();
-  private app: express.Express;
+  public app: express.Express;
   private server: HttpServer;
 
-  constructor() {
+  public static instance: Server = null;
+
+  public static getInstance(): Server {
+    if (!this.instance) {
+      this.instance = new Server();
+    }
+    return this.instance;
+  }
+
+  constructor(listen = true) {
     if (!(process.env.NODE_ENV === 'production')) {
       Logger.info(
         LOG_TAG,
         'Running in DEBUG mode, set env variable NODE_ENV=production to disable '
       );
     }
-    this.init().catch(console.error);
+    this.init(listen).catch(console.error);
   }
 
-  get App(): any {
+  get Server(): HttpServer {
     return this.server;
   }
 
-  async init(): Promise<void> {
+  async init(listen = true): Promise<void> {
+    this.app = express();
+    LoggerRouter.route(this.app);
+    this.app.set('view engine', 'ejs');
+
     Logger.info(LOG_TAG, 'running diagnostics...');
     await ConfigDiagnostics.runDiagnostics();
     Logger.verbose(
       LOG_TAG,
-      'using config from ' +
+      () => 'using config from ' +
         (
           ConfigClassBuilder.attachPrivateInterface(Config)
-            .__options as ConfigClassOptions
+            .__options as ConfigClassOptions<ServerConfig>
         ).configPath +
         ':'
     );
-    Logger.verbose(LOG_TAG, JSON.stringify(Config, null, '\t'));
+    Logger.verbose(LOG_TAG, () => JSON.stringify(Config.toJSON({attachDescription: false}), (k, v) => {
+      const MAX_LENGTH = 80;
+      if (typeof v === 'string' && v.length > MAX_LENGTH) {
+        v = v.slice(0, MAX_LENGTH - 3) + '...';
+      }
+      return v;
+    }, 2));
 
-    this.app = express();
-
-    LoggerRouter.route(this.app);
-
-    this.app.set('view engine', 'ejs');
 
     /**
      * Session above all
@@ -92,11 +105,11 @@ export class Server {
     this.app.use(
       csuf.unless((req: Request) => {
         return (
-          Config.Client.authenticationRequired === false ||
-          ['/api/user/login', '/api/user/logout', '/api/share/login'].indexOf(
+          Config.Users.authenticationRequired === false ||
+          [Config.Server.apiPath + '/user/login', Config.Server.apiPath + '/user/logout', Config.Server.apiPath + '/share/login'].indexOf(
             req.originalUrl
           ) !== -1 ||
-          (Config.Client.Sharing.enabled === true &&
+          (Config.Sharing.enabled === true &&
             !!req.query[QueryParams.gallery.sharingKey_query])
         );
       })
@@ -104,24 +117,19 @@ export class Server {
 
     // enable token generation but do not check it
     this.app.post(
-      ['/api/user/login', '/api/share/login'],
-      _csrf({ ignoreMethods: ['POST'] })
+      [Config.Server.apiPath + '/user/login', Config.Server.apiPath + '/share/login'],
+      _csrf({ignoreMethods: ['POST']})
     );
     this.app.get(
-      ['/api/user/me', '/api/share/:' + QueryParams.gallery.sharingKey_params],
-      _csrf({ ignoreMethods: ['GET'] })
+      [Config.Server.apiPath + '/user/me', Config.Server.apiPath + '/share/:' + QueryParams.gallery.sharingKey_params],
+      _csrf({ignoreMethods: ['GET']})
     );
 
-    DiskManager.init();
     PhotoProcessing.init();
     Localizations.init();
 
-    this.app.use(locale(Config.Client.languages, 'en'));
-    if (Config.Server.Database.type !== DatabaseType.memory) {
-      await ObjectManagers.InitSQLManagers();
-    } else {
-      await ObjectManagers.InitMemoryManagers();
-    }
+    this.app.use(locale(Config.Server.languages, 'en'));
+    await ObjectManagers.getInstance().init();
 
     Router.route(this.app);
 
@@ -132,11 +140,27 @@ export class Server {
     this.server = _http.createServer(this.app);
 
     // Listen on provided PORT, on all network interfaces.
-    this.server.listen(Config.Server.port, Config.Server.host);
+    if (listen) {
+      this.server.listen(Config.Server.port, Config.Server.host);
+    }
     this.server.on('error', this.onError);
     this.server.on('listening', this.onListening);
+    this.server.on('close', this.onClose);
 
-    this.onStarted.trigger();
+    // Sigterm handler
+    process.removeAllListeners('SIGTERM');
+    process.on('SIGTERM', this.SIGTERM);
+
+    if (!listen) {
+      this.onStarted.trigger();
+    }
+  }
+
+  private SIGTERM = () =>{
+    Logger.info(LOG_TAG, 'SIGTERM signal received');
+    this.server.close(() => {
+      process.exit(0);
+    });
   }
 
   /**
@@ -173,7 +197,29 @@ export class Server {
     const bind =
       typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
     Logger.info(LOG_TAG, 'Listening on ' + bind);
+    this.onStarted.trigger();
   };
+
+  /**
+   * Event listener for HTTP server "close" event.
+   */
+  private onClose = () => {
+    Logger.info(LOG_TAG, 'Closed http server');
+  };
+
+  public Stop(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if(!this.server.listening){
+        return resolve();
+      }
+      this.server.close((err) => {
+        if (!err) {
+          return resolve();
+        }
+        reject(err);
+      });
+    });
+  }
 }
 
 

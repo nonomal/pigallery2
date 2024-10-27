@@ -1,9 +1,9 @@
-import { Component, OnInit } from '@angular/core';
-import { LoginCredential } from '../../../../common/entities/LoginCredential';
-import { AuthenticationService } from '../../model/network/authentication.service';
-import { ErrorCodes } from '../../../../common/entities/Error';
-import { Config } from '../../../../common/config/public/Config';
-import { NavigationService } from '../../model/navigation.service';
+import {Component, OnInit} from '@angular/core';
+import {LoginCredential} from '../../../../common/entities/LoginCredential';
+import {AuthenticationService} from '../../model/network/authentication.service';
+import {ErrorCodes} from '../../../../common/entities/Error';
+import {Config} from '../../../../common/config/public/Config';
+import {NavigationService} from '../../model/navigation.service';
 
 @Component({
   selector: 'app-login',
@@ -17,16 +17,16 @@ export class LoginComponent implements OnInit {
   inProgress = false;
 
   constructor(
-    private authService: AuthenticationService,
-    private navigation: NavigationService
+      private authService: AuthenticationService,
+      private navigation: NavigationService
   ) {
     this.loginCredential = new LoginCredential();
-    this.title = Config.Client.applicationTitle;
+    this.title = Config.Server.applicationTitle;
   }
 
   ngOnInit(): void {
     if (this.authService.isAuthenticated()) {
-      this.navigation.toGallery();
+      this.navigation.toDefault();
     }
   }
 

@@ -1,35 +1,21 @@
-import {
-  Component,
-  ElementRef,
-  EventEmitter,
-  HostListener,
-  Input,
-  OnChanges,
-  OnDestroy,
-  OnInit,
-  Output,
-  ViewChild,
-} from '@angular/core';
+import {Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, OnDestroy, OnInit, Output, ViewChild,} from '@angular/core';
 import {MediaDTOUtils} from '../../../../../../common/entities/MediaDTO';
 import {FullScreenService} from '../../fullscreen.service';
 import {GalleryPhotoComponent} from '../../grid/photo/photo.grid.gallery.component';
-import {Observable, Subscription, timer} from 'rxjs';
-import {filter} from 'rxjs/operators';
+import {interval, Subscription} from 'rxjs';
+import {filter, skip} from 'rxjs/operators';
 import {PhotoDTO} from '../../../../../../common/entities/PhotoDTO';
 import {GalleryLightboxMediaComponent} from '../media/media.lightbox.gallery.component';
 import {Config} from '../../../../../../common/config/public/Config';
-import {
-  SearchQueryTypes,
-  TextSearch,
-  TextSearchQueryMatchTypes,
-} from '../../../../../../common/entities/SearchQueryDTO';
+import {SearchQueryTypes, TextSearch, TextSearchQueryMatchTypes,} from '../../../../../../common/entities/SearchQueryDTO';
 import {AuthenticationService} from '../../../../model/network/authentication.service';
+import {LightboxService} from '../lightbox.service';
+import {GalleryCacheService} from '../../cache.gallery.service';
+import {Utils} from '../../../../../../common/Utils';
+import {FileSizePipe} from '../../../../pipes/FileSizePipe';
+import {DatePipe} from '@angular/common';
+import {LightBoxTitleTexts} from '../../../../../../common/config/public/ClientConfig';
 
-export enum PlayBackStates {
-  Paused = 1,
-  Play = 2,
-  FastForward = 3,
-}
 
 @Component({
   selector: 'app-lightbox-controls',
@@ -38,45 +24,53 @@ export enum PlayBackStates {
 })
 export class ControlsLightboxComponent implements OnDestroy, OnInit, OnChanges {
   readonly MAX_ZOOM = 10;
+  @ViewChild('canvas')
+  canvas: ElementRef<HTMLCanvasElement>;
+  private ctx: CanvasRenderingContext2D;
 
   @ViewChild('root', {static: false}) root: ElementRef;
-
   @Output() closed = new EventEmitter();
   @Output() toggleInfoPanel = new EventEmitter();
   @Output() toggleFullScreen = new EventEmitter();
   @Output() nextPhoto = new EventEmitter();
   @Output() previousPhoto = new EventEmitter();
+  @Output() togglePlayback = new EventEmitter<boolean>();
 
   @Input() navigation = {hasPrev: true, hasNext: true};
   @Input() activePhoto: GalleryPhotoComponent;
   @Input() mediaElement: GalleryLightboxMediaComponent;
   @Input() photoFrameDim = {width: 1, height: 1, aspect: 1};
+  @Input() slideShowRunning: boolean;
 
-  public readonly facesEnabled = Config.Client.Faces.enabled;
+  public readonly facesEnabled = Config.Faces.enabled;
 
   public zoom = 1;
-  public playBackState: PlayBackStates = PlayBackStates.Paused;
-  public PlayBackStates = PlayBackStates;
+  public playBackDurations = [1, 2, 5, 10, 15, 20, 30, 60];
+  public selectedSlideshowSpeed: number = null;
   public controllersDimmed = false;
-  public controllersAlwaysOn = false;
+
   public controllersVisible = true;
   public drag = {x: 0, y: 0};
   public SearchQueryTypes = SearchQueryTypes;
   public faceContainerDim = {width: 0, height: 0};
   public searchEnabled: boolean;
+
   private visibilityTimer: number = null;
-  private timer: Observable<number>;
   private timerSub: Subscription;
   private prevDrag = {x: 0, y: 0};
   private prevZoom = 1;
 
   constructor(
+    public lightboxService: LightboxService,
     public fullScreenService: FullScreenService,
-    private authService: AuthenticationService
+    private authService: AuthenticationService,
+    private cacheService: GalleryCacheService,
+    private fileSizePipe: FileSizePipe,
+    private datePipe: DatePipe
   ) {
-    this.searchEnabled =
-      Config.Client.Search.enabled && this.authService.canSearch();
+    this.searchEnabled = this.authService.canSearch();
   }
+
 
   public get Zoom(): number {
     return this.zoom;
@@ -95,7 +89,7 @@ export class ControlsLightboxComponent implements OnDestroy, OnInit, OnChanges {
     if (this.zoom === zoom) {
       return;
     }
-    this.pause();
+    this.stopSlideShow();
     this.drag.x = (this.drag.x / this.zoom) * zoom;
     this.drag.y = (this.drag.y / this.zoom) * zoom;
     this.prevDrag.x = this.drag.x;
@@ -105,35 +99,32 @@ export class ControlsLightboxComponent implements OnDestroy, OnInit, OnChanges {
     this.checkZoomAndDrag();
   }
 
-  get Title(): string {
-    if (!this.activePhoto) {
-      return null;
-    }
-    return (this.activePhoto.gridMedia.media as PhotoDTO).metadata.caption;
-  }
-
   public containerWidth(): void {
     return this.root.nativeElement.width;
   }
 
-  public containerHeight(): void {
-    return this.root.nativeElement.height;
-  }
-
   ngOnInit(): void {
-    this.timer = timer(1000, 2000);
+    if (this.cacheService.getSlideshowSpeed()) {
+      this.selectedSlideshowSpeed = this.cacheService.getSlideshowSpeed();
+    } else {
+      this.selectedSlideshowSpeed = Config.Gallery.Lightbox.defaultSlideshowSpeed;
+    }
   }
 
   ngOnDestroy(): void {
-    this.pause();
+    this.stopSlideShow();
 
     if (this.visibilityTimer != null) {
       clearTimeout(this.visibilityTimer);
+      this.visibilityTimer = null;
     }
   }
 
   ngOnChanges(): void {
     this.updateFaceContainerDim();
+    if (this.slideShowRunning) {
+      this.runSlideShow();
+    }
   }
 
   pan($event: { deltaY: number; deltaX: number; isFinal: boolean }): void {
@@ -155,13 +146,25 @@ export class ControlsLightboxComponent implements OnDestroy, OnInit, OnChanges {
     }
   }
 
-  wheel($event: { deltaY: number }): void {
-    if (!this.activePhoto || this.activePhoto.gridMedia.isVideo()) {
+  wheel($event: { deltaX: number, deltaY: number }): void {
+    if (!this.activePhoto) {
+      return;
+    }
+    if ($event.deltaX < 0) {
+      if (this.navigation.hasPrev) {
+        this.previousPhoto.emit();
+      }
+    } else if ($event.deltaX > 0) {
+      if (this.navigation.hasNext) {
+        this.nextMediaManuallyTriggered();
+      }
+    }
+    if (this.activePhoto.gridMedia.isVideo()) {
       return;
     }
     if ($event.deltaY < 0) {
       this.zoomIn();
-    } else {
+    } else if ($event.deltaY > 0) {
       this.zoomOut();
     }
   }
@@ -185,11 +188,11 @@ export class ControlsLightboxComponent implements OnDestroy, OnInit, OnChanges {
     this.prevZoom = this.zoom;
   }
 
-  tap($event: any): void {
+  tap($event: Event): void {
     if (!this.activePhoto || this.activePhoto.gridMedia.isVideo()) {
       return;
     }
-    if ($event.tapCount < 2) {
+    if (($event as unknown as { tapCount: number }).tapCount < 2) {
       return;
     }
 
@@ -225,7 +228,7 @@ export class ControlsLightboxComponent implements OnDestroy, OnInit, OnChanges {
         break;
       case 'ArrowRight':
         if (this.navigation.hasNext) {
-          this.nextPhoto.emit();
+          this.nextMediaManuallyTriggered();
         }
         break;
       case 'i':
@@ -244,7 +247,27 @@ export class ControlsLightboxComponent implements OnDestroy, OnInit, OnChanges {
         break;
       case 'c':
       case 'C':
-        this.controllersAlwaysOn = !this.controllersAlwaysOn;
+        this.lightboxService.captionAlwaysOn = !this.lightboxService.captionAlwaysOn;
+        break;
+      case 'a':
+      case 'A':
+        this.lightboxService.facesAlwaysOn = !this.lightboxService.facesAlwaysOn;
+        break;
+      case 'l':
+      case 'L':
+        this.lightboxService.loopVideos = !this.lightboxService.loopVideos;
+        break;
+      case 'd':
+      case 'D':
+        if (event.shiftKey) {
+          const link = document.createElement('a');
+          link.setAttribute('type', 'hidden');
+          link.href = this.activePhoto.gridMedia.getOriginalMediaPath();
+          link.download = this.activePhoto.gridMedia.media.name;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        }
         break;
       case 'Escape': // escape
         this.closed.emit();
@@ -273,18 +296,58 @@ export class ControlsLightboxComponent implements OnDestroy, OnInit, OnChanges {
     this.nextPhoto.emit();
   };
 
-  public play(): void {
-    this.pause();
-    this.timerSub = this.timer
-      .pipe(filter((t) => t % 2 === 0))
-      .subscribe(this.showNextMedia);
-    this.playBackState = PlayBackStates.Play;
+  private drawSliderProgress(t: number) {
+    let p = 0;
+
+    // Video is a special snowflake. It won't go to next media if a video is playing
+    if (!(this.activePhoto &&
+      this.activePhoto.gridMedia.isVideo() &&
+      !this.mediaElement.Paused)) {
+      p = (t % (this.selectedSlideshowSpeed * 10)) / this.selectedSlideshowSpeed / 10;  // ticks every 100 ms
+
+    }
+    if (!this.canvas) {
+      return;
+    }
+    if (!this.ctx) {
+      this.ctx = this.canvas.nativeElement.getContext('2d');
+    }
+
+    this.ctx.lineWidth = 5;
+    this.ctx.strokeStyle = 'white';
+    this.ctx.lineCap = 'round';
+    this.ctx.clearRect(0, 0, this.canvas.nativeElement.width, this.canvas.nativeElement.height);
+    this.ctx.beginPath();
+    this.ctx.arc(this.canvas.nativeElement.width / 2, this.canvas.nativeElement.height / 2, this.canvas.nativeElement.width / 2 - this.ctx.lineWidth, 0, p * 2 * Math.PI);
+
+    this.ctx.stroke();
   }
 
-  public fastForward(): void {
-    this.pause();
-    this.timerSub = this.timer.subscribe(this.showNextMedia);
-    this.playBackState = PlayBackStates.FastForward;
+  private resetSlideshowTimer(): void {
+    if (this.slideShowRunning === true) {
+      this.stopSlideShow();
+      this.runSlideShow();
+    }
+  }
+
+  public runSlideShow(): void {
+    //timer already running, do not reset it.
+    if (this.timerSub) {
+      return;
+    }
+    this.stopSlideShow();
+    this.drawSliderProgress(0);
+    this.timerSub = interval(100)
+      .pipe(filter((t) => {
+        this.drawSliderProgress(t);
+        return t % (this.selectedSlideshowSpeed * 10) === 0; // ticks every 100 ms
+      }))
+      .pipe(skip(1)) // do not skip to next photo right away
+      .subscribe(this.showNextMedia);
+  }
+
+  public slideshowSpeedChanged() {
+    this.cacheService.setSlideshowSpeed(this.selectedSlideshowSpeed);
   }
 
   @HostListener('mousemove')
@@ -292,11 +355,20 @@ export class ControlsLightboxComponent implements OnDestroy, OnInit, OnChanges {
     this.showControls();
   }
 
-  public pause(): void {
+  public stopSlideShow(): void {
     if (this.timerSub != null) {
       this.timerSub.unsubscribe();
+      this.timerSub = null;
     }
-    this.playBackState = PlayBackStates.Paused;
+    this.ctx = null;
+  }
+
+  playClicked() {
+    this.togglePlayback.emit(true);
+  }
+
+  pauseClicked() {
+    this.togglePlayback.emit(false);
   }
 
   resetZoom(): void {
@@ -404,5 +476,79 @@ export class ControlsLightboxComponent implements OnDestroy, OnInit, OnChanges {
       this.faceContainerDim.width = this.photoFrameDim.width;
     }
   }
-}
 
+  nextMediaManuallyTriggered() {
+    this.resetSlideshowTimer();
+    this.nextPhoto.emit();
+  }
+
+
+  getText(type: LightBoxTitleTexts): string {
+    if (!this.activePhoto?.gridMedia?.media) {
+      return null;
+    }
+    const m = this.activePhoto.gridMedia.media as PhotoDTO;
+    switch (type) {
+      case LightBoxTitleTexts.file:
+        return Utils.concatUrls(
+          m.directory.path,
+          m.directory.name,
+          m.name
+        );
+      case LightBoxTitleTexts.resolution:
+        return `${m.metadata.size.width}x${m.metadata.size.height}`;
+      case LightBoxTitleTexts.size:
+        return this.fileSizePipe.transform(m.metadata.fileSize);
+      case LightBoxTitleTexts.title:
+        return m.metadata.title;
+      case LightBoxTitleTexts.caption:
+        return m.metadata.caption;
+      case LightBoxTitleTexts.keywords:
+        return m.metadata.keywords.join(', ');
+      case LightBoxTitleTexts.persons:
+        return m.metadata.faces?.map(f => f.name)?.join(', ');
+      case LightBoxTitleTexts.date:
+        return this.datePipe.transform(Utils.getTimeMS(m.metadata.creationDate, m.metadata.creationDateOffset, Config.Gallery.ignoreTimestampOffset) , 'longDate', 'UTC');
+      case LightBoxTitleTexts.location:
+        if (!m.metadata.positionData) {
+          return '';
+        }
+        return [
+          m.metadata.positionData.city,
+          m.metadata.positionData.state,
+          m.metadata.positionData.country
+        ].filter(elm => elm).join(', ').trim(); //Filter removes empty elements, join concats the values separated by ', '
+      case LightBoxTitleTexts.camera:
+        return m.metadata.cameraData?.model;
+      case LightBoxTitleTexts.lens:
+        return m.metadata.cameraData?.lens;
+      case LightBoxTitleTexts.iso:
+        return m.metadata.cameraData?.ISO.toString();
+      case LightBoxTitleTexts.fstop:
+        if (m.metadata.cameraData?.fStop > 1) {
+          return m.metadata.cameraData?.fStop.toString();
+        }
+        return '1/' + Math.round(1 / m.metadata.cameraData?.fStop);
+      case LightBoxTitleTexts.focal_length:
+        return m.metadata.cameraData?.focalLength.toString();
+    }
+    return null;
+  }
+
+  get TopLeftTitle(): string {
+    return this.getText(Config.Gallery.Lightbox.Titles.topLeftTitle);
+  }
+
+  get TopLeftSubtitle(): string {
+    return this.getText(Config.Gallery.Lightbox.Titles.topLeftSubtitle);
+  }
+
+  get BottomLeftTitle(): string {
+    return this.getText(Config.Gallery.Lightbox.Titles.bottomLeftTitle);
+  }
+
+  get BottomLeftSubtitle(): string {
+    return this.getText(Config.Gallery.Lightbox.Titles.bottomLeftSubtitle);
+  }
+
+}

@@ -1,21 +1,19 @@
-import { Injectable } from '@angular/core';
-import { ShareService } from '../ui/gallery/share.service';
-import { MediaDTO } from '../../../common/entities/MediaDTO';
-import { QueryParams } from '../../../common/QueryParams';
-import { Utils } from '../../../common/Utils';
-import { ContentService } from '../ui/gallery/content.service';
-import { Config } from '../../../common/config/public/Config';
-import {
-  ParentDirectoryDTO,
-  SubDirectoryDTO,
-} from '../../../common/entities/DirectoryDTO';
+import {Injectable} from '@angular/core';
+import {ShareService} from '../ui/gallery/share.service';
+import {MediaDTO} from '../../../common/entities/MediaDTO';
+import {QueryParams} from '../../../common/QueryParams';
+import {Utils} from '../../../common/Utils';
+import {Config} from '../../../common/config/public/Config';
+import {ParentDirectoryDTO, SubDirectoryDTO,} from '../../../common/entities/DirectoryDTO';
+import {ContentLoaderService} from '../ui/gallery/contentLoader.service';
 
 @Injectable()
 export class QueryService {
   constructor(
     private shareService: ShareService,
-    private galleryService: ContentService
-  ) {}
+    private galleryService: ContentLoaderService
+  ) {
+  }
 
   getMediaStringId(media: MediaDTO): string {
     if (this.galleryService.isSearchResult()) {
@@ -29,12 +27,15 @@ export class QueryService {
     }
   }
 
-  getParams(media?: MediaDTO): { [key: string]: string } {
+  getParams(lightbox?: { media?: MediaDTO, playing?: boolean }): { [key: string]: string } {
     const query: { [key: string]: string } = {};
-    if (media) {
-      query[QueryParams.gallery.photo] = this.getMediaStringId(media);
+    if (lightbox?.media) {
+      query[QueryParams.gallery.photo] = this.getMediaStringId(lightbox?.media);
     }
-    if (Config.Client.Sharing.enabled === true) {
+    if (lightbox?.playing) {
+      query[QueryParams.gallery.playback] = 'true';
+    }
+    if (Config.Sharing.enabled === true) {
       if (this.shareService.isSharing()) {
         query[QueryParams.gallery.sharingKey_query] =
           this.shareService.getSharingKey();
@@ -47,7 +48,7 @@ export class QueryService {
     [key: string]: any;
   } {
     const params: { [key: string]: any } = {};
-    if (Config.Client.Sharing.enabled === true) {
+    if (Config.Sharing.enabled === true) {
       if (this.shareService.isSharing()) {
         params[QueryParams.gallery.sharingKey_query] =
           this.shareService.getSharingKey();

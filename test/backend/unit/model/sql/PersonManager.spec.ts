@@ -1,14 +1,13 @@
 import {expect} from 'chai';
-import {PersonManager} from '../../../../../src/backend/model/database/sql/PersonManager';
+import {PersonManager} from '../../../../../src/backend/model/database/PersonManager';
 import {DBTestHelper} from '../../../DBTestHelper';
 import {TestHelper} from '../../../../TestHelper';
 import {PhotoDTO} from '../../../../../src/common/entities/PhotoDTO';
 import {Utils} from '../../../../../src/common/Utils';
-import {PersonWithSampleRegion} from '../../../../../src/common/entities/PersonDTO';
 import {ParentDirectoryDTO} from '../../../../../src/common/entities/DirectoryDTO';
 import {VideoDTO} from '../../../../../src/common/entities/VideoDTO';
-import {SQLConnection} from '../../../../../src/backend/model/database/sql/SQLConnection';
-import {PersonEntry} from '../../../../../src/backend/model/database/sql/enitites/PersonEntry';
+import {SQLConnection} from '../../../../../src/backend/model/database/SQLConnection';
+import {PersonEntry} from '../../../../../src/backend/model/database/enitites/PersonEntry';
 
 
 // to help WebStorm to handle the test cases
@@ -18,6 +17,7 @@ declare const before: any;
 declare const it: any;
 
 
+// eslint-disable-next-line prefer-const
 describe = DBTestHelper.describe();
 
 describe('PersonManager', (sqlHelper: DBTestHelper) => {
@@ -30,7 +30,7 @@ describe('PersonManager', (sqlHelper: DBTestHelper) => {
   let p2: PhotoDTO;
   let pFaceLess: PhotoDTO;
 
-  let savedPerson: PersonWithSampleRegion[] = [];
+  let savedPerson: PersonEntry[] = [];
 
   const setUpSqlDB = async () => {
     await sqlHelper.initDB();
@@ -73,7 +73,7 @@ describe('PersonManager', (sqlHelper: DBTestHelper) => {
     person.count = 1;
     expect(selected).to.deep.equal(person);
 
-    expect((await pm.get('Boba Fett') as PersonWithSampleRegion).sampleRegion.media.name).to.deep.equal(p.name);
+    expect((await pm.get('Boba Fett') as PersonEntry).sampleRegion.media.name).to.deep.equal(p.name);
   });
 
 

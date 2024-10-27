@@ -1,11 +1,11 @@
-import { NextFunction, Request, Response } from 'express';
-import { CreateSharingDTO, SharingDTO } from '../../common/entities/SharingDTO';
-import { ObjectManagers } from '../model/ObjectManagers';
-import { ErrorCodes, ErrorDTO } from '../../common/entities/Error';
-import { Config } from '../../common/config/private/Config';
-import { QueryParams } from '../../common/QueryParams';
+import {NextFunction, Request, Response} from 'express';
+import {CreateSharingDTO, SharingDTO, SharingDTOKey} from '../../common/entities/SharingDTO';
+import {ObjectManagers} from '../model/ObjectManagers';
+import {ErrorCodes, ErrorDTO} from '../../common/entities/Error';
+import {Config} from '../../common/config/private/Config';
+import {QueryParams} from '../../common/QueryParams';
 import * as path from 'path';
-import { UserRoles } from '../../common/entities/UserDTO';
+import {UserRoles} from '../../common/entities/UserDTO';
 
 export class SharingMWs {
   public static async getSharing(
@@ -13,16 +13,14 @@ export class SharingMWs {
     res: Response,
     next: NextFunction
   ): Promise<void> {
-    if (Config.Client.Sharing.enabled === false) {
+    if (Config.Sharing.enabled === false) {
       return next();
     }
     const sharingKey = req.params[QueryParams.gallery.sharingKey_params];
 
     try {
       req.resultPipe =
-        await ObjectManagers.getInstance().SharingManager.findOne({
-          sharingKey,
-        });
+        await ObjectManagers.getInstance().SharingManager.findOne(sharingKey);
       return next();
     } catch (err) {
       return next(
@@ -35,12 +33,37 @@ export class SharingMWs {
     }
   }
 
+  public static async getSharingKey(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    if (Config.Sharing.enabled === false) {
+      return next();
+    }
+    const sharingKey = req.params[QueryParams.gallery.sharingKey_params];
+
+    try {
+      req.resultPipe =
+        {sharingKey: (await ObjectManagers.getInstance().SharingManager.findOne(sharingKey)).sharingKey} as SharingDTOKey;
+      return next();
+    } catch (err) {
+      return next(
+        new ErrorDTO(
+          ErrorCodes.GENERAL_ERROR,
+          'Error during retrieving sharing key',
+          err
+        )
+      );
+    }
+  }
+
   public static async createSharing(
     req: Request,
     res: Response,
     next: NextFunction
   ): Promise<void> {
-    if (Config.Client.Sharing.enabled === false) {
+    if (Config.Sharing.enabled === false) {
       return next();
     }
     if (
@@ -52,15 +75,21 @@ export class SharingMWs {
       );
     }
     const createSharing: CreateSharingDTO = req.body.createSharing;
+
+    if (Config.Sharing.passwordRequired && !createSharing.password) {
+
+      return next(
+        new ErrorDTO(ErrorCodes.INPUT_ERROR, 'Password is required.')
+      );
+    }
+
     let sharingKey = SharingMWs.generateKey();
 
     // create one not yet used
     // eslint-disable-next-line no-constant-condition
     while (true) {
       try {
-        await ObjectManagers.getInstance().SharingManager.findOne({
-          sharingKey,
-        });
+        await ObjectManagers.getInstance().SharingManager.findOne(sharingKey);
         sharingKey = this.generateKey();
       } catch (err) {
         break;
@@ -105,7 +134,7 @@ export class SharingMWs {
     res: Response,
     next: NextFunction
   ): Promise<void> {
-    if (Config.Client.Sharing.enabled === false) {
+    if (Config.Sharing.enabled === false) {
       return next();
     }
     if (
@@ -159,7 +188,7 @@ export class SharingMWs {
     res: Response,
     next: NextFunction
   ): Promise<void> {
-    if (Config.Client.Sharing.enabled === false) {
+    if (Config.Sharing.enabled === false) {
       return next();
     }
     if (
@@ -173,6 +202,13 @@ export class SharingMWs {
     const sharingKey: string = req.params['sharingKey'];
 
     try {
+      // Check if user has the right to delete sharing.
+      if (req.session['user'].role < UserRoles.Admin) {
+        const s = await ObjectManagers.getInstance().SharingManager.findOne(sharingKey);
+        if (s.creator.id !== req.session['user'].id) {
+          return next(new ErrorDTO(ErrorCodes.NOT_AUTHORISED, 'Can\'t delete sharing.'));
+        }
+      }
       req.resultPipe =
         await ObjectManagers.getInstance().SharingManager.deleteSharing(
           sharingKey
@@ -195,12 +231,42 @@ export class SharingMWs {
     res: Response,
     next: NextFunction
   ): Promise<void> {
-    if (Config.Client.Sharing.enabled === false) {
+    if (Config.Sharing.enabled === false) {
       return next();
     }
     try {
       req.resultPipe =
         await ObjectManagers.getInstance().SharingManager.listAll();
+      return next();
+    } catch (err) {
+      return next(
+        new ErrorDTO(
+          ErrorCodes.GENERAL_ERROR,
+          'Error during listing shares',
+          err
+        )
+      );
+    }
+  }
+
+  public static async listSharingForDir(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    if (Config.Sharing.enabled === false) {
+      return next();
+    }
+
+    const dir = path.normalize(req.params['directory'] || '/');
+    try {
+      if (req.session['user'].role >= UserRoles.Admin) {
+        req.resultPipe =
+          await ObjectManagers.getInstance().SharingManager.listAllForDir(dir);
+      } else {
+        req.resultPipe =
+          await ObjectManagers.getInstance().SharingManager.listAllForDir(dir, req.session['user']);
+      }
       return next();
     } catch (err) {
       return next(

@@ -1,30 +1,13 @@
-import {
-  Component,
-  ElementRef,
-  Input,
-  OnDestroy,
-  OnInit,
-  ViewChild,
-} from '@angular/core';
-import { Dimension, IRenderable } from '../../../../model/IRenderable';
-import { GridMedia } from '../GridMedia';
-import { RouterLink } from '@angular/router';
-import {
-  Thumbnail,
-  ThumbnailManagerService,
-} from '../../thumbnailManager.service';
-import { Config } from '../../../../../../common/config/public/Config';
-import { PageHelper } from '../../../../model/page.helper';
-import {
-  PhotoDTO,
-  PhotoMetadata,
-} from '../../../../../../common/entities/PhotoDTO';
-import {
-  SearchQueryTypes,
-  TextSearch,
-  TextSearchQueryMatchTypes,
-} from '../../../../../../common/entities/SearchQueryDTO';
-import { AuthenticationService } from '../../../../model/network/authentication.service';
+import {Component, ElementRef, Input, OnDestroy, OnInit, ViewChild,} from '@angular/core';
+import {Dimension, IRenderable} from '../../../../model/IRenderable';
+import {GridMedia} from '../GridMedia';
+import {RouterLink} from '@angular/router';
+import {Thumbnail, ThumbnailManagerService,} from '../../thumbnailManager.service';
+import {Config} from '../../../../../../common/config/public/Config';
+import {PageHelper} from '../../../../model/page.helper';
+import {PhotoDTO, PhotoMetadata,} from '../../../../../../common/entities/PhotoDTO';
+import {SearchQueryTypes, TextSearch, TextSearchQueryMatchTypes,} from '../../../../../../common/entities/SearchQueryDTO';
+import {AuthenticationService} from '../../../../model/network/authentication.service';
 
 @Component({
   selector: 'app-gallery-grid-photo',
@@ -34,8 +17,8 @@ import { AuthenticationService } from '../../../../model/network/authentication.
 })
 export class GalleryPhotoComponent implements IRenderable, OnInit, OnDestroy {
   @Input() gridMedia: GridMedia;
-  @ViewChild('img', { static: false }) imageRef: ElementRef;
-  @ViewChild('photoContainer', { static: true }) container: ElementRef;
+  @ViewChild('img', {static: false}) imageRef: ElementRef;
+  @ViewChild('photoContainer', {static: true}) container: ElementRef;
 
   thumbnail: Thumbnail;
   keywords: { value: string; type: SearchQueryTypes }[] = null;
@@ -46,13 +29,13 @@ export class GalleryPhotoComponent implements IRenderable, OnInit, OnDestroy {
   searchEnabled = true;
 
   wasInView: boolean = null;
+  loaded = false;
 
   constructor(
-    private thumbnailService: ThumbnailManagerService,
-    private authService: AuthenticationService
+      private thumbnailService: ThumbnailManagerService,
+      private authService: AuthenticationService
   ) {
-    this.searchEnabled =
-      Config.Client.Search.enabled && this.authService.canSearch();
+    this.searchEnabled = this.authService.canSearch();
   }
 
   get ScrollListener(): boolean {
@@ -60,14 +43,14 @@ export class GalleryPhotoComponent implements IRenderable, OnInit, OnDestroy {
   }
 
   get Title(): string {
-    if (Config.Client.Other.captionFirstNaming === false) {
+    if (Config.Gallery.captionFirstNaming === false) {
       return this.gridMedia.media.name;
     }
     if ((this.gridMedia.media as PhotoDTO).metadata.caption) {
       if ((this.gridMedia.media as PhotoDTO).metadata.caption.length > 20) {
         return (
-          (this.gridMedia.media as PhotoDTO).metadata.caption.substring(0, 17) +
-          '...'
+            (this.gridMedia.media as PhotoDTO).metadata.caption.substring(0, 17) +
+            '...'
         );
       }
       return (this.gridMedia.media as PhotoDTO).metadata.caption;
@@ -79,28 +62,28 @@ export class GalleryPhotoComponent implements IRenderable, OnInit, OnDestroy {
     this.thumbnail = this.thumbnailService.getThumbnail(this.gridMedia);
     const metadata = this.gridMedia.media.metadata as PhotoMetadata;
     if (
-      (metadata.keywords && metadata.keywords.length > 0) ||
-      (metadata.faces && metadata.faces.length > 0)
+        (metadata.keywords && metadata.keywords.length > 0) ||
+        (metadata.faces && metadata.faces.length > 0)
     ) {
       this.keywords = [];
-      if (Config.Client.Faces.enabled) {
+      if (Config.Faces.enabled) {
         const names: string[] = (metadata.faces || []).map(
-          (f): string => f.name
+            (f): string => f.name
         );
         this.keywords = names
-          .filter((name, index): boolean => names.indexOf(name) === index)
-          .map((n): { type: SearchQueryTypes; value: string } => ({
-            value: n,
-            type: SearchQueryTypes.person,
-          }));
+            .filter((name, index): boolean => names.indexOf(name) === index)
+            .map((n): { type: SearchQueryTypes; value: string } => ({
+              value: n,
+              type: SearchQueryTypes.person,
+            }));
       }
       this.keywords = this.keywords.concat(
-        (metadata.keywords || []).map(
-          (k): { type: SearchQueryTypes; value: string } => ({
-            value: k,
-            type: SearchQueryTypes.keyword,
-          })
-        )
+          (metadata.keywords || []).map(
+              (k): { type: SearchQueryTypes; value: string } => ({
+                value: k,
+                type: SearchQueryTypes.keyword,
+              })
+          )
       );
     }
   }
@@ -115,10 +98,10 @@ export class GalleryPhotoComponent implements IRenderable, OnInit, OnDestroy {
 
   isInView(): boolean {
     return (
-      PageHelper.ScrollY <
+        PageHelper.ScrollY <
         this.container.nativeElement.offsetTop +
-          this.container.nativeElement.clientHeight &&
-      PageHelper.ScrollY + window.innerHeight >
+        this.container.nativeElement.clientHeight &&
+        PageHelper.ScrollY + window.innerHeight >
         this.container.nativeElement.offsetTop
     );
   }
@@ -137,6 +120,7 @@ export class GalleryPhotoComponent implements IRenderable, OnInit, OnDestroy {
   getPositionSearchQuery(): string {
     return JSON.stringify({
       type: SearchQueryTypes.position,
+      matchType: TextSearchQueryMatchTypes.exact_match,
       text: this.getPositionText(),
     } as TextSearch);
   }
@@ -150,14 +134,14 @@ export class GalleryPhotoComponent implements IRenderable, OnInit, OnDestroy {
   }
 
   getPositionText(): string {
-    if (!this.gridMedia || !this.gridMedia.isPhoto()) {
+    if (!this.gridMedia || !this.gridMedia.isPhoto() || !(this.gridMedia.media as PhotoDTO).metadata.positionData) {
       return '';
     }
-    return (
-      (this.gridMedia.media as PhotoDTO).metadata.positionData.city ||
-      (this.gridMedia.media as PhotoDTO).metadata.positionData.state ||
-      (this.gridMedia.media as PhotoDTO).metadata.positionData.country
-    );
+    return ( //not much space in the gridview, so we only deliver city, or state or country
+        (this.gridMedia.media as PhotoDTO).metadata.positionData.city ||
+        (this.gridMedia.media as PhotoDTO).metadata.positionData.state ||
+        (this.gridMedia.media as PhotoDTO).metadata.positionData.country || ''
+    ).trim();
   }
 
   mouseOver(): void {
@@ -195,4 +179,3 @@ export class GalleryPhotoComponent implements IRenderable, OnInit, OnDestroy {
     };
   }
 }
-

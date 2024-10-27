@@ -1,5 +1,6 @@
-import { Express, NextFunction, Request, Response } from 'express';
-import { logFN, Logger } from '../Logger';
+import {Express, NextFunction, Request, Response} from 'express';
+import {LoggerFunction, Logger} from '../Logger';
+import {Config} from '../../common/config/private/Config';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -15,7 +16,7 @@ declare global {
  * Adds logging to express
  */
 export class LoggerRouter {
-  public static log(loggerFn: logFN, req: Request, res: Response): void {
+  public static log(loggerFn: LoggerFunction, req: Request, res: Response): void {
     if (req.logged === true) {
       return;
     }
@@ -25,10 +26,10 @@ export class LoggerRouter {
       res.end = end;
       res.end(a, b, c);
       loggerFn(
-        req.method,
-        req.url,
-        res.statusCode,
-        Date.now() - req._startTime + 'ms'
+          req.method,
+          req.url,
+          res.statusCode,
+          Date.now() - req._startTime + 'ms'
       );
       return res;
     };
@@ -41,17 +42,17 @@ export class LoggerRouter {
       return next();
     });
 
-    app.get('/api*', (req: Request, res: Response, next: NextFunction): any => {
+    app.get(Config.Server.apiPath + '*', (req: Request, res: Response, next: NextFunction): any => {
       LoggerRouter.log(Logger.verbose, req, res);
       return next();
     });
 
     app.get(
-      '/node_modules*',
-      (req: Request, res: Response, next: NextFunction): any => {
-        LoggerRouter.log(Logger.silly, req, res);
-        return next();
-      }
+        '/node_modules*',
+        (req: Request, res: Response, next: NextFunction): any => {
+          LoggerRouter.log(Logger.silly, req, res);
+          return next();
+        }
     );
 
     app.use((req: Request, res: Response, next: NextFunction): any => {

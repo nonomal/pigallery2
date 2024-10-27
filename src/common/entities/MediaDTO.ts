@@ -1,7 +1,7 @@
-import { DirectoryPathDTO } from './DirectoryDTO';
-import { PhotoDTO } from './PhotoDTO';
-import { FileDTO } from './FileDTO';
-import { SupportedFormats } from '../SupportedFormats';
+import {DirectoryPathDTO} from './DirectoryDTO';
+import {PhotoDTO} from './PhotoDTO';
+import {FileDTO} from './FileDTO';
+import {SupportedFormats} from '../SupportedFormats';
 
 export interface MediaDTO extends FileDTO {
   id: number;
@@ -11,10 +11,17 @@ export interface MediaDTO extends FileDTO {
   missingThumbnails?: number;
 }
 
+export type RatingTypes = 0 | 1 | 2 | 3 | 4 | 5;
+
 export interface MediaMetadata {
   size: MediaDimension;
   creationDate: number;
   fileSize: number;
+  creationDateOffset?: string;
+  keywords?: string[];
+  rating?: RatingTypes;
+  title?: string;
+  caption?: string;
 }
 
 export interface MediaDimension {
@@ -25,15 +32,15 @@ export interface MediaDimension {
 export const MediaDTOUtils = {
   hasPositionData: (media: MediaDTO): boolean => {
     return (
-      !!(media as PhotoDTO).metadata.positionData &&
-      !!(
-        (media as PhotoDTO).metadata.positionData.city ||
-        (media as PhotoDTO).metadata.positionData.state ||
-        (media as PhotoDTO).metadata.positionData.country ||
-        ((media as PhotoDTO).metadata.positionData.GPSData &&
-          (media as PhotoDTO).metadata.positionData.GPSData.latitude &&
-          (media as PhotoDTO).metadata.positionData.GPSData.longitude)
-      )
+        !!(media as PhotoDTO).metadata.positionData &&
+        !!(
+            (media as PhotoDTO).metadata.positionData.city ||
+            (media as PhotoDTO).metadata.positionData.state ||
+            (media as PhotoDTO).metadata.positionData.country ||
+            ((media as PhotoDTO).metadata.positionData.GPSData &&
+                (media as PhotoDTO).metadata.positionData.GPSData.latitude &&
+                (media as PhotoDTO).metadata.positionData.GPSData.longitude)
+        )
     );
   },
   isPhoto: (media: FileDTO): boolean => {
@@ -71,6 +78,12 @@ export const MediaDTOUtils = {
   },
 
   calcAspectRatio: (photo: MediaDTO): number => {
-    return photo.metadata.size.width / photo.metadata.size.height;
+    return (photo.metadata.size.width / photo.metadata.size.height) || 1; // NaN should be treated as square photo
   },
+
+  equals: (a: MediaDTO, b: MediaDTO): boolean => {
+    return a.directory.path === b.directory.path &&
+        a.directory.name === b.directory.name &&
+        a.name === b.name;
+  }
 };

@@ -3,7 +3,6 @@
 [![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/bpatrik/pigallery2.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/bpatrik/pigallery2/context:javascript)
 [![Build Status](https://travis-ci.org/bpatrik/pigallery2.svg?branch=master)](https://travis-ci.org/bpatrik/pigallery2)
 [![Coverage Status](https://coveralls.io/repos/github/bpatrik/pigallery2/badge.svg?branch=master)](https://coveralls.io/github/bpatrik/pigallery2?branch=master)
-[![Heroku](https://heroku-badge.herokuapp.com/?app=pigallery2&style=flat)](https://pigallery2.herokuapp.com)
 [![Docker build](https://github.com/bpatrik/pigallery2/workflows/docker-buildx/badge.svg)](https://github.com/bpatrik/pigallery2/actions)
 [![dependencies Status](https://david-dm.org/bpatrik/pigallery2/status.svg)](https://david-dm.org/bpatrik/pigallery2)
  
@@ -12,16 +11,19 @@ Homepage: http://bpatrik.github.io/pigallery2/
 
 This is a **fast** (like faster than your PC fast) **directory-first photo gallery website**, optimised for running on low resource servers (especially on raspberry pi).
 
-✔️ Strenghts:
- * ⚡ Fast, like for real
- * ✔️ Simple. Point to your photos folder and a temp folder and you are good to go
+✔️ Strengths:
+ * ⚡ Fast, like for real.
+ * ✔️ Simple. Point to your photos folder and to a temp folder and you are good to go.
 
 ⛔ Weakness:
  * 😥 Its simple. Shows what you have that's it. No gallery changes (photo delete, rotate, enhance, tag, organize, etc), your gallery folder is read-only.
- * 📁 Optimized for galleries with <100K photos with <5k photos/folder
+ * 📁 Optimized for galleries with <100K photos with <5k photos/folder.
+      * It will work on bigger galleries, but it will start to slow down.
+
+[You wrote about pigallery2](docs/references/README.md).
 
 ## Live Demo
-Live Demo @ heroku: https://pigallery2.herokuapp.com/ 
+Live Demo @ render: https://pigallery2.onrender.com/ 
  - the demo page **first load** might take up **30s**: the time while the free webservice boots up
 
 ![PiGallery2 - Animated gif demo](docs/demo.gif)
@@ -42,7 +44,7 @@ Live Demo @ heroku: https://pigallery2.herokuapp.com/
 
 [Docker](https://www.docker.com/) with [docker-compose](https://docs.docker.com/compose/) is the official and recommend way of installing and running *Pigallery2*.
 It contains all necessary dependencies, auto restarts on reboot, supports https, easy to upgrade to newer versions.
-For configuration and docker-compose files read more [here](docker/README.md) or check all builds: https://hub.docker.com/r/bpatrik/pigallery2/tags/
+For configuration and docker-compose files read more [here](docker/README.md) or check all builds [here](https://hub.docker.com/r/bpatrik/pigallery2/tags/).
 
 
 
@@ -92,7 +94,7 @@ npm start
 To configure it, run `PiGallery2` first to create `config.json` file, then edit it and restart.
 The app has a nice UI for settings, you may use that too. 
 
-Default user: `admin` pass: `admin`. (It is not possible to change the admin password, you need to create another user and delete the default `admin` user, see  #220)
+Default user: `admin` pass: `admin`. (It is not possible to change the admin password, you need to create another user and delete the default `admin` user, see  [#220](https://github.com/bpatrik/pigallery2/issues/220))
 
 **Note**: First run, you might have file access issues and port 80 issue, see [#115](https://github.com/bpatrik/pigallery2/issues/115).
 Running `npm start -- --Server-port=8080` will start the app on port 8080 that does not require `root`
@@ -102,14 +104,14 @@ Adding read/write permissions to all files can solve the file access issue `chmo
 You can run the app up as a service to run it on startup. Read more at [#42](https://github.com/bpatrik/pigallery2/issues/42#issuecomment-458340945)
 
 ### 1.3 Advanced configuration
-You can set up the app the following ways:
- * Using the UI
- * Manually editing the `config.json`
- * Through switches
-   * Like: `node start -- --Server-port=3000 --Client-authenticationRequired=false`
-   * You can check the generated `config.json` for the config hierarchy
- * Through environmental variable
-   * like set env. variable `Server-port` to `3000`   
+You can set up the app any of the following ways:
+ 1. Using the UI (recommended)
+ 2. Manually editing the `config.json`
+ 3. Through switches
+    * Like: `node start -- --Server-port=3000 --Client-authenticationRequired=false`
+    * You can check the generated `config.json` for the config hierarchy
+ 4. Through environmental variable
+    * like set env. variable `Server-port` to `3000`   
 
 Full list of configuration options are available at the [MANPAGE.md](MANPAGE.md).
 
@@ -133,7 +135,7 @@ apt-get install build-essential  libkrb5-dev gcc g++
 ## 2. Translate the page to your own language
 1. [Install Pigallery2](#121-b-install-from-source) from source (with the release it won't work) 
 2. add your language e.g: fr
-   * copy `src/frontend/translate/messages.en.xls` to `src/frontend/translate/messages.fr.xls`
+   * copy `src/frontend/translate/messages.en.xlf` to `src/frontend/translate/messages.fr.xlf`
    * add the new translation to the `angular.json` `projects->pigallery2->i18n->locales` section 
 3. translate the file by updating the `<target>` tags
 4. test if it works:
@@ -151,89 +153,33 @@ apt-get install build-essential  libkrb5-dev gcc g++
 
 ## 3. Feature list
 
- * supported formats [full list here](https://github.com/bpatrik/pigallery2/blob/master/src/common/SupportedFormats.ts):
-   * images: **jpg, jpeg, jpe, webp, png, gif, svg**
-   * videos: **mp4, ogg, ogv, webm**
-     * with (built-in) transcoding: avi, mkv, mov, wmv, flv, mts, m2ts, mpg, 3gp, m4v, mpeg, vob, divx, xvid, ts
- * **Rendering directories as it is**
-   * Listing subdirectories recursively
-   * Listing photos in a nice grid layout
-     * showing **tag/keywords, locations, GPS coordinates** for photos
-     * rendering photos on demand (on scroll)
- * **On the fly thumbnail generation** in several sizes
-   * prioritizes thumbnail generation (generating thumbnail first for the visible photos)
-   * saving generated thumbnails to TEMP folder for reuse
-   * supporting multi-core CPUs
-   * supporting hardware acceleration ([sharp](https://github.com/lovell/sharp))
- * Custom lightbox for full screen photo and video viewing
-   * keyboard support for navigation  
-   * showing low-res thumbnail while full image loads
-   * Information panel for showing **Exif info**  
-   * Automatic playing
-   * gesture support (swipe left, right, up)
-   * shortcut support
- * On the fly photo downscaling for faster load [#50](https://github.com/bpatrik/pigallery2/issues/50)
-   * on zoom, the original photo loads
- * Client side caching (directories and search results)
- * Rendering **photos** with GPS coordinates **on open street maps**
-   * .gpx file support: rendering paths to map
-   * supports [OSM](https://www.openstreetmap.org) and [Mapbox](https://www.mapbox.com) by default, but you can add any provider that has a tile url
- * **Two modes: SQL database and no-database mode**
-   * both modes supports
-     * user management
-     * password protection can be disabled/enabled
-   * database mode supports:
-     * faster directory listing
-     * searching
-       * instant search, auto complete
-     * sharing 
-       * setting link expiration time
- * Faces (persons) support
-    * reads Adobe's XMP Face region metadata. (It is defined by the Metadata Working Group (MWG).)
-    * shows face bounding box over images
- * internalization / translation support
-   * currently supported languages: eng, hun, ro, ru, fr
- * Nice design 
-    * responsive design (phone, tablet desktop support)
- * Setup page
- * Random photo url
-   * You can generate an url that returns a random photo from your gallery. You can use this feature to develop 3rd party applications, like: changing desktop background
- * duplicate photo detection  
- * video support
-   * fully supports `*.mp4` files and partially (might have errors with safari and IE) supports `*.ogg`, `*.ogv`, `*.webm` files
-   * uses ffmpeg and ffprobe to generate video thumbnails
-   * can transcode videos to mp4 for better support
- * job scheduling support, with the following supported task: [#92](https://github.com/bpatrik/pigallery2/issues/92)
-   * converting/transcoding videos [#66](https://github.com/bpatrik/pigallery2/issues/66) [#71](https://github.com/bpatrik/pigallery2/issues/71)
-   * generating thumbnails
-   * generating converted photos
-   * cleaning up temp folder
-   * indexing db
- * folder ignoring [#87](https://github.com/bpatrik/pigallery2/issues/87)
- * `.pg2conf` UI modifying files. [#177](https://github.com/bpatrik/pigallery2/issues/177).
-    * List of these files are passed down to the UI modify its behaviour.
-    * Currently, supported custom, per folder sorting.
- * Dockerized 
- * **Markdown based blogging support** 
-   * you can write some note in the *.md files for every directory
- * bug free :) - `In progress`
- 
+See: http://bpatrik.github.io/pigallery2/
  
 ## 4. Suggest/endorse new features
-  You are welcome to suggest new features to the application via [github issues](https://github.com/bpatrik/pigallery2/issues).  
-  Unfortunatly, lately I only have a limited time for this hobby project of mine. 
-  So, I mostly focuse on those features that are align with my needs. Sorry :(.
-  Although, I try to fixs bugs ASAP (that can still take from a few days to months).
-  I also try to implement some of the feature requests that have a lots of 'likes' (i.e.: `+1`-s or thumbs ups) on it.
-  If you have a feature that you really would like to happen, I welcome contributions to the app. See [CONTRIBUTING.md](https://github.com/bpatrik/pigallery2/blob/master/CONTRIBUTING.md) for more details.
+  Unfortunately, I only have a limited time for this hobby project of mine. 
+  And I mostly focus on those features that are align with my needs. Sorry :(.
+  Although, I try to fix bugs ASAP (that can still take from a few days to months).
+  **The recommended way of extending the projects is to implement the feature as an extension.** See [#743](https://github.com/bpatrik/pigallery2/issues/743).
+  If the extension framweork is not powerfull enough, so you can't implement your feature, you are welcome to open a FR bug and I will consider adding that.
+  If you really want to contribute and think that your feature has a place in the mainapp, look at [CONTRIBUTING.md](https://github.com/bpatrik/pigallery2/blob/master/CONTRIBUTING.md) for some guidance.
 
 ## 5. Known errors
 * IOS map issue
   * Map on IOS prevents using the buttons in the image preview navigation, see #155
 * Video support on weak servers (like raspberry pi) with low upload rate
-  * video playback may use up too much resources and the server might not response for a while. Enable video transcoding in the app, to transcode the videos to lover bitrate. 
-  
+  * video playback may use up too much resources and the server might not respond for a while. Enable video transcoding in the app, to transcode the videos to lover bitrate. 
+* When using an Apache proxy, sub folders are not accessible
+  * add `AllowEncodedSlashes On` in the configuration of the proxy
+
+## 6. Supporting the project
+I'm making this app for my own entertainment,
+but I like to share it with others as the contributions and bug reports make the app better
+and it also does not cost anything to me :)
+
+There is [no way to donate](https://github.com/bpatrik/pigallery2/discussions/328#discussioncomment-894546) to this project at the moment. And I'm also not planning on monetizing it.
+But it warms my hearth [seeing that it is useful for some people](docs/references/README.md). 
+
+
 ## 6. Credits
 Crossbrowser testing sponsored by [Browser Stack](https://www.browserstack.com)
 [<img src="https://camo.githubusercontent.com/a7b268f2785656ab3ca7b1cbb1633ee5affceb8f/68747470733a2f2f64677a6f7139623561736a67312e636c6f756466726f6e742e6e65742f70726f64756374696f6e2f696d616765732f6c61796f75742f6c6f676f2d6865616465722e706e67" alt="Browser Stack" height="31px" style="background: cornflowerblue;">](https://www.browserstack.com)
-

@@ -1,17 +1,18 @@
-import { Injectable } from '@angular/core';
-import { LoginCredential } from '../../../../common/entities/LoginCredential';
-import { NetworkService } from './network.service';
-import { UserDTO } from '../../../../common/entities/UserDTO';
-import { Config } from '../../../../common/config/public/Config';
-import { ShareService } from '../../ui/gallery/share.service';
-import { QueryParams } from '../../../../common/QueryParams';
+import {Injectable} from '@angular/core';
+import {LoginCredential} from '../../../../common/entities/LoginCredential';
+import {NetworkService} from './network.service';
+import {UserDTO} from '../../../../common/entities/UserDTO';
+import {Config} from '../../../../common/config/public/Config';
+import {ShareService} from '../../ui/gallery/share.service';
+import {QueryParams} from '../../../../common/QueryParams';
 
 @Injectable()
 export class UserService {
   constructor(
-    private networkService: NetworkService,
-    private shareService: ShareService
-  ) {}
+      private networkService: NetworkService,
+      private shareService: ShareService
+  ) {
+  }
 
   public async logout(): Promise<string> {
     return this.networkService.postJson('/user/logout');
@@ -25,21 +26,21 @@ export class UserService {
 
   public async shareLogin(password: string): Promise<UserDTO> {
     return this.networkService.postJson<UserDTO>(
-      '/share/login?' +
+        '/share/login?' +
         QueryParams.gallery.sharingKey_query +
         '=' +
         this.shareService.getSharingKey(),
-      { password }
+        {password}
     );
   }
 
   public async getSessionUser(): Promise<UserDTO> {
     await this.shareService.wait();
-    if (Config.Client.Sharing.enabled === true) {
+    if (Config.Sharing.enabled === true) {
       if (this.shareService.isSharing()) {
         const query: any = {};
         query[QueryParams.gallery.sharingKey_query] =
-          this.shareService.getSharingKey();
+            this.shareService.getSharingKey();
         return this.networkService.getJson<UserDTO>('/user/me', query);
       }
     }

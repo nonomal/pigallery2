@@ -1,5 +1,5 @@
 import {expect} from 'chai';
-import {VideoProcessing} from '../../../../../src/backend/model/fileprocessing/VideoProcessing';
+import {VideoProcessing} from '../../../../../src/backend/model/fileaccess/fileprocessing/VideoProcessing';
 import {Config} from '../../../../../src/common/config/private/Config';
 import {ProjectPath} from '../../../../../src/backend/ProjectPath';
 import * as path from 'path';
@@ -22,22 +22,22 @@ describe('VideoProcessing', () => {
 
     {
       const convertedPath = VideoProcessing.generateConvertedFilePath(videoPath);
-      Config.Server.Media.Video.transcoding.bitRate = 10;
+      Config.Media.Video.transcoding.bitRate = 10;
       expect(await VideoProcessing.isValidConvertedPath(convertedPath)).to.be.false;
     }
     {
       const convertedPath = VideoProcessing.generateConvertedFilePath(videoPath);
-      Config.Server.Media.Video.transcoding.codec = 'codec_text' as any;
+      Config.Media.Video.transcoding.mp4Codec = 'codec_text' as any;
       expect(await VideoProcessing.isValidConvertedPath(convertedPath)).to.be.false;
     }
     {
       const convertedPath = VideoProcessing.generateConvertedFilePath(videoPath);
-      Config.Server.Media.Video.transcoding.format = 'format_test' as any;
+      Config.Media.Video.transcoding.format = 'format_test' as any;
       expect(await VideoProcessing.isValidConvertedPath(convertedPath)).to.be.false;
     }
     {
       const convertedPath = VideoProcessing.generateConvertedFilePath(videoPath);
-      Config.Server.Media.Video.transcoding.resolution = 1 as any;
+      Config.Media.Video.transcoding.resolution = 1 as any;
       expect(await VideoProcessing.isValidConvertedPath(convertedPath)).to.be.false;
     }
   });

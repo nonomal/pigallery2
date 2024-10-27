@@ -13,7 +13,8 @@ In general, I'm happy to merge PRs, but I recommend filling a ticket and ask fir
 1. Download the source files
 2. install dependencies `npm install`
 3. Build client  `npm run run-dev`
-   * This will build the client with english localization and will keep building if you change the source files
+   * This will build the client with english localization and will keep building if you change the source files. 
+   * Note: This process does not exit, so you need another terminal to run the next step.
 4. Build the backend `npm run build-backend`
    * This runs `tsc` that transpiles `.ts` files to `.js` so node can run them. 
      * To rebuild on change run `tsc -w`
@@ -26,7 +27,7 @@ In general, I'm happy to merge PRs, but I recommend filling a ticket and ask fir
 Overview:
 ```
 |-- benchmark --A benchmark tool to test the speed of the app (not needed for development)
-|-- demo -- contains some sample photo for https://pigallery2.herokuapp.com/  (not needed for development)
+|-- demo -- contains some sample photo for https://pigallery2.onrender.com/  (not needed for development)
 |-- docker -- contains all docker and docker realted configurations (this is the recommended way for app deplyoment)
 |-- docs -- webpage for http://bpatrik.github.io/pigallery2/
 
@@ -104,3 +105,34 @@ Client side:
 15. Setting `content` BehaviorSubject (rxjs) with the `ContentWrapperWithError` from the server.
 16. Rendering gallery: UI is data binded to the `galleryService.content` [gallery.component.html]
    
+## Running the tests locally
+You can run tests in various ways. If you use VS Code, the built-in test explorer is a good way to visualize and run the tests. You can also run tests from the command line.
+
+- Run all tests:
+
+  `npx mocha`
+- Run all tests in parallel and report with very verbose output (to debug tests that don't run):
+  
+  `npx mocha --reporter spec --parallel`
+- Run a specific test (here the SettingsRouter in the backend):
+
+  `npx mocha ./test/backend/integration/routers/admin/SettingsRouter.js`
+
+### MySQL / MariaDB tests
+  The MySQL / MariaDB tests needs a separate database to be running during the test. If you have docker, you can start one with the required test-settings, using the command below:
+
+  `docker run --name pigallery_test -e MYSQL_ROOT_PASSWORD=password -e MYSQL_DATABASE=pigallery_test -e MYSQL_USER=user -e MYSQL_PASSWORD=password -p3306:3306 -d mariadb:10.3 --log-bin --binlog-format=MIXED`
+
+  Start this betfore running the tests in text explorer or the command line, if you want to include the MySQL tests.
+
+  Once you're finished with the testing, you can shut down the container again:
+
+  `docker stop pigallery_test`
+
+  or you can shut it down AND remove it:
+
+  `docker stop pigallery_test && docker rm pigallery_test`
+
+
+
+  

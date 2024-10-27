@@ -7,6 +7,7 @@ import {SuperAgentStatic} from 'superagent';
 import {ProjectPath} from '../../../../src/backend/ProjectPath';
 import {DBTestHelper} from '../../DBTestHelper';
 import {ReIndexingSensitivity} from '../../../../src/common/config/private/PrivateConfig';
+import {TestHelper} from '../../../TestHelper';
 
 
 process.env.NODE_ENV = 'test';
@@ -20,28 +21,21 @@ declare let describe: any;
 declare const after: any;
 declare const it: any;
 const tmpDescribe = describe;
-describe = DBTestHelper.describe({memory: true});
+describe = DBTestHelper.describe({sqlite: true});
 
 describe('GalleryRouter', (sqlHelper: DBTestHelper) => {
   describe = tmpDescribe;
 
-  const tempDir = path.join(__dirname, '../../tmp');
   let server: Server;
   const setUp = async () => {
     await sqlHelper.initDB();
-    await fs.promises.rm(tempDir, {recursive: true, force: true});
-    Config.Client.authenticationRequired = false;
-    Config.Server.Threading.enabled = false;
-    Config.Client.Media.Video.enabled = true;
-    Config.Server.Media.folder = path.join(__dirname, '../../assets');
-    Config.Server.Media.tempFolder = path.join(__dirname, '../../tmp');
+    Config.Users.authenticationRequired = false;
+    Config.Media.Video.enabled = true;
+    Config.Media.folder = path.join(__dirname, '../../assets');
+    Config.Media.tempFolder = TestHelper.TMP_DIR;
     ProjectPath.reset();
-    //  ProjectPath.ImageFolder = path.join(__dirname, '../../assets');
-    // ProjectPath.TempFolder = tempDir;
-
-    server = new Server();
+    server = new Server(false);
     await server.onStarted.wait();
-
   };
   const tearDown = async () => {
     await sqlHelper.clearDB();
@@ -54,8 +48,8 @@ describe('GalleryRouter', (sqlHelper: DBTestHelper) => {
     afterEach(tearDown);
 
     it('should load gallery', async () => {
-      const result = await (chai.request(server.App) as SuperAgentStatic)
-        .get('/api/gallery/content/');
+      const result = await (chai.request(server.Server) as SuperAgentStatic)
+        .get(Config.Server.apiPath + '/gallery/content/');
 
       (result.should as any).have.status(200);
       expect(result.body.error).to.be.equal(null);
@@ -64,12 +58,12 @@ describe('GalleryRouter', (sqlHelper: DBTestHelper) => {
     });
 
     it('should load gallery twice (to force loading form db)', async () => {
-      Config.Server.Indexing.reIndexingSensitivity = ReIndexingSensitivity.low;
-      const _ = await (chai.request(server.App) as SuperAgentStatic)
-        .get('/api/gallery/content/orientation');
+      Config.Indexing.reIndexingSensitivity = ReIndexingSensitivity.low;
+      const _ = await (chai.request(server.Server) as SuperAgentStatic)
+        .get(Config.Server.apiPath + '/gallery/content/orientation');
 
-      const result = await (chai.request(server.App) as SuperAgentStatic)
-        .get('/api/gallery/content/orientation');
+      const result = await (chai.request(server.Server) as SuperAgentStatic)
+        .get(Config.Server.apiPath + '/gallery/content/orientation');
 
       (result.should as any).have.status(200);
       expect(result.body.error).to.be.equal(null);
@@ -86,8 +80,8 @@ describe('GalleryRouter', (sqlHelper: DBTestHelper) => {
     afterEach(tearDown);
 
     it('should get video without transcoding', async () => {
-      const result = await (chai.request(server.App) as SuperAgentStatic)
-        .get('/api/gallery/content/video.mp4/bestFit');
+      const result = await (chai.request(server.Server) as SuperAgentStatic)
+        .get(Config.Server.apiPath + '/gallery/content/video.mp4/bestFit');
 
       (result.should as any).have.status(200);
       expect(result.body).to.be.instanceof(Buffer);

@@ -3,9 +3,7 @@ import {promises as fsp} from 'fs';
 import * as archiver from 'archiver';
 import {NextFunction, Request, Response} from 'express';
 import {ErrorCodes, ErrorDTO} from '../../common/entities/Error';
-import {
-  ParentDirectoryDTO,
-} from '../../common/entities/DirectoryDTO';
+import {ParentDirectoryDTO,} from '../../common/entities/DirectoryDTO';
 import {ObjectManagers} from '../model/ObjectManagers';
 import {ContentWrapper} from '../../common/entities/ConentWrapper';
 import {ProjectPath} from '../ProjectPath';
@@ -13,14 +11,12 @@ import {Config} from '../../common/config/private/Config';
 import {UserDTOUtils} from '../../common/entities/UserDTO';
 import {MediaDTO, MediaDTOUtils} from '../../common/entities/MediaDTO';
 import {QueryParams} from '../../common/QueryParams';
-import {VideoProcessing} from '../model/fileprocessing/VideoProcessing';
-import {
-  SearchQueryDTO,
-  SearchQueryTypes,
-} from '../../common/entities/SearchQueryDTO';
+import {VideoProcessing} from '../model/fileaccess/fileprocessing/VideoProcessing';
+import {SearchQueryDTO, SearchQueryTypes,} from '../../common/entities/SearchQueryDTO';
 import {LocationLookupException} from '../exceptions/LocationLookupException';
 import {SupportedFormats} from '../../common/SupportedFormats';
 import {ServerTime} from './ServerTimingMWs';
+import {SortByTypes} from '../../common/entities/SortingMethods';
 
 export class GalleryMWs {
   @ServerTime('1.db', 'List Directory')
@@ -88,7 +84,7 @@ export class GalleryMWs {
     res: Response,
     next: NextFunction
   ): Promise<void> {
-    if (Config.Client.Other.enableDownloadZip === false) {
+    if (Config.Gallery.NavBar.enableDownloadZip === false) {
       return next();
     }
     const directoryName = req.params['directory'] || '/';
@@ -157,7 +153,7 @@ export class GalleryMWs {
       return next();
     }
 
-    if (Config.Client.Media.Video.enabled === false) {
+    if (Config.Media.Video.enabled === false) {
       if (cw.directory) {
         const removeVideos = (dir: ParentDirectoryDTO): void => {
           dir.media = dir.media.filter(
@@ -241,7 +237,7 @@ export class GalleryMWs {
     next: NextFunction
   ): Promise<void> {
     if (
-      Config.Client.Search.enabled === false ||
+      Config.Search.enabled === false ||
       !req.params['searchQueryDTO']
     ) {
       return next();
@@ -283,7 +279,7 @@ export class GalleryMWs {
     res: Response,
     next: NextFunction
   ): Promise<void> {
-    if (Config.Client.Search.AutoComplete.enabled === false) {
+    if (Config.Search.AutoComplete.enabled === false) {
       return next();
     }
     if (!req.params['text']) {
@@ -314,7 +310,7 @@ export class GalleryMWs {
     next: NextFunction
   ): Promise<void> {
     if (
-      Config.Client.RandomPhoto.enabled === false ||
+      Config.RandomPhoto.enabled === false ||
       !req.params['searchQueryDTO']
     ) {
       return next();
@@ -325,16 +321,16 @@ export class GalleryMWs {
         req.params['searchQueryDTO'] as string
       );
 
-      const photo =
-        await ObjectManagers.getInstance().SearchManager.getRandomPhoto(query);
-      if (!photo) {
+      const photos =
+        await ObjectManagers.getInstance().SearchManager.getNMedia(query, [{method: SortByTypes.Random, ascending: null}], 1, true);
+      if (!photos || photos.length !== 1) {
         return next(new ErrorDTO(ErrorCodes.INPUT_ERROR, 'No photo found'));
       }
 
       req.params['mediaPath'] = path.join(
-        photo.directory.path,
-        photo.directory.name,
-        photo.name
+        photos[0].directory.path,
+        photos[0].directory.name,
+        photos[0].name
       );
       return next();
     } catch (e) {

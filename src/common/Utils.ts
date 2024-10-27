@@ -1,3 +1,5 @@
+import { HTMLChar } from './HTMLCharCodes';
+
 export class Utils {
   static GUID(): string {
     const s4 = (): string =>
@@ -35,7 +37,7 @@ export class Utils {
             delete obj[key];
           }
         }
-      } else if (obj[key] === null) {
+      } else if (obj[key] === null || obj[key] === undefined) {
         delete obj[key];
       }
     }
@@ -54,15 +56,20 @@ export class Utils {
     return c;
   }
 
-  static zeroPrefix(value: string | number, length: number): string {
-    const ret = '00000' + value;
-    return ret.substr(ret.length - length);
+  static zeroPrefix(number: any, length: number): string {
+    if (!isNaN(number)) {
+      const zerosToAdd = Math.max(length - String(number).length, 0);
+      return '0'.repeat(zerosToAdd) + number;
+    } else {
+      return '0'.repeat(number);
+    }
   }
+
 
   /**
    * Checks if the two input (let them be objects or arrays or just primitives) are equal
    */
-  static equalsFilter(object: any, filter: any): boolean {
+  static equalsFilter(object: any, filter: any, skipProp: string[] = []): boolean {
     if (typeof filter !== 'object' || filter == null) {
       return object === filter;
     }
@@ -75,8 +82,11 @@ export class Utils {
     }
     const keys = Object.keys(filter);
     for (const key of keys) {
+      if (skipProp.includes(key)) {
+        continue;
+      }
       if (typeof filter[key] === 'object') {
-        if (Utils.equalsFilter(object[key], filter[key]) === false) {
+        if (Utils.equalsFilter(object[key], filter[key], skipProp) === false) {
           return false;
         }
       } else if (object[key] !== filter[key]) {
@@ -87,6 +97,184 @@ export class Utils {
     return true;
   }
 
+  static toIsoString(d: number | Date) {
+    if (!(d instanceof Date)) {
+      d = new Date(d);
+    }
+    return d.getUTCFullYear() + '-' + d.getUTCMonth() + '-' + d.getUTCDate();
+  }
+
+  static toIsoTimestampString(YYYYMMDD: string, hhmmss: string): string {
+    if (YYYYMMDD && hhmmss) {
+      // Regular expression to match YYYYMMDD format
+      const dateRegex = /^(\d{4})(\d{2})(\d{2})$/;
+      // Regular expression to match hhmmss+/-ohom format
+      const timeRegex = /^(\d{2})(\d{2})(\d{2})([+-]\d{2})?(\d{2})?$/;
+      const [, year, month, day] = YYYYMMDD.match(dateRegex);
+      const [, hour, minute, second, offsetHour, offsetMinute] = hhmmss.match(timeRegex);
+      const isoTimestamp = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+      if (offsetHour && offsetMinute) {
+        return isoTimestamp + `${offsetHour}:${offsetMinute}`;
+      } else {
+        return isoTimestamp;
+      }
+    } else {
+      return undefined;
+    }
+  }
+
+  static makeUTCMidnight(d: number | Date, offset: string) {
+    if (!(d instanceof Date)) {
+      d = new Date(d);
+    }
+    d = new Date(new Date(d).toISOString().substring(0,19) + (offset ? offset : '+00:00'))
+    d.setUTCHours(0);
+    d.setUTCMinutes(0);
+    d.setUTCSeconds(0);
+    d.setUTCMilliseconds(0);
+
+    return d;
+  }
+
+  static getUTCFullYear(d: number | Date, offset: string) {
+    if (!(d instanceof Date)) {
+      d = new Date(d);
+    }
+    return new Date(new Date(d).toISOString().substring(0,19) + (offset ? offset : '+00:00')).getUTCFullYear();
+  }
+
+  static getFullYear(d: number | Date, offset: string) {
+    if (!(d instanceof Date)) {
+      d = new Date(d);
+    }
+    return new Date(new Date(d).toISOString().substring(0,19) + (offset ? offset : '')).getFullYear();
+  }
+
+  //function to convert timestamp into milliseconds taking offset into account
+  static timestampToMS(timestamp: string, offset: string): number {
+    if (!timestamp) {
+      return undefined;
+    }
+    //replace : with - in the yyyy-mm-dd part of the timestamp.
+    let formattedTimestamp = timestamp.substring(0,9).replaceAll(':', '-') + timestamp.substring(9,timestamp.length);
+    if (formattedTimestamp.indexOf("Z") > 0) { //replace Z (and what comes after the Z) with offset
+      formattedTimestamp = formattedTimestamp.substring(0, formattedTimestamp.indexOf("Z")) + (offset ? offset : '+00:00');
+    } else if (formattedTimestamp.indexOf("+") > 0 || timestamp.substring(9,timestamp.length).indexOf("-") > 0) { //don't do anything
+    } else { //add offset
+      formattedTimestamp = formattedTimestamp + (offset ? offset : '+00:00');
+    }
+    //parse into MS and return
+    return Date.parse(formattedTimestamp);
+  }
+
+  static splitTimestampAndOffset(timestamp: string): [string|undefined, string|undefined] {
+    if (!timestamp) {
+      return [undefined, undefined];
+    }
+    //                                 |---------------------TIMESTAMP WITH OPTIONAL MILLISECONDS--------------------||-OPTIONAL TZONE--|
+    //                                 |YYYY           MM           DD            HH         MM         SS (MS optio)||(timezone offset)|
+    const timestampWithOffsetRegex = /^(\d{4}[-.: ]\d{2}[-.: ]\d{2}[-.: T]\d{2}[-.: ]\d{2}[-.: ]\d{2}(?:\.\d+)?)([+-]\d{2}:\d{2})?$/;
+    const match = timestamp.match(timestampWithOffsetRegex);
+    if (match) {
+      return [match[1], match[2]]; //match[0] is the full string, not interested in that.
+    } else {
+      return [undefined, undefined];
+    }
+  }
+
+
+  //function to calculate offset from exif.exif.gpsTimeStamp or exif.gps.GPSDateStamp + exif.gps.GPSTimestamp
+  static getTimeOffsetByGPSStamp(timestamp: string, gpsTimeStamp: string, gps: any) {
+    let UTCTimestamp = gpsTimeStamp;
+    if (!UTCTimestamp &&
+      gps &&
+      gps.GPSDateStamp &&
+      gps.GPSTimeStamp) { //else use exif.gps.GPS*Stamp if available
+      //GPS timestamp is always UTC (+00:00)
+      UTCTimestamp = gps.GPSDateStamp.replaceAll(':', '-') + " " + gps.GPSTimeStamp.map((num: any) => Utils.zeroPrefix(num ,2)).join(':');
+    }
+    if (UTCTimestamp && timestamp) {
+      //offset in minutes is the difference between gps timestamp and given timestamp
+      //to calculate this correctly, we have to work with the same offset
+      const offsetMinutes: number = Math.round((Utils.timestampToMS(timestamp, '+00:00')- Utils.timestampToMS(UTCTimestamp, '+00:00')) / 1000 / 60);
+      return Utils.getOffsetString(offsetMinutes);
+    } else {
+      return undefined;
+    }
+  }
+
+  static getOffsetString(offsetMinutes: number) {
+    if (-720 <= offsetMinutes && offsetMinutes <= 840) {
+      //valid offset is within -12 and +14 hrs (https://en.wikipedia.org/wiki/List_of_UTC_offsets)
+      return (offsetMinutes < 0 ? "-" : "+") +                              //leading +/-
+        Utils.zeroPrefix(Math.trunc(Math.abs(offsetMinutes) / 60), 2) + ":" +        //zeropadded hours and ':'
+        Utils.zeroPrefix((Math.abs(offsetMinutes) % 60), 2);                         //zeropadded minutes
+    } else {
+      return undefined;
+    }
+  }
+
+  static getOffsetMinutes(offsetString: string) { //Convert offset string (+HH:MM or -HH:MM) into a minute value
+    const regex = /^([+-](0[0-9]|1[0-4]):[0-5][0-9])$/;  //checks if offset is between -14:00 and +14:00.
+                                                         //-12:00 is the lowest valid UTC-offset, but we allow down to -14 for efficiency
+    if (regex.test(offsetString)) {
+      const hhmm = offsetString.split(":");
+      const hours = parseInt(hhmm[0]);
+      return hours < 0 ? ((hours*60) - parseInt(hhmm[1])) : ((hours*60) + parseInt(hhmm[1]));
+    } else {
+      return undefined;
+    }
+  }
+
+  //Get the MS of the creationDate, adjusted for  the offset. Effectively getting the MS value as if the photo did not contain an offset.
+  //One can consider this "Local" time of the photo. Starting point is UTC, as MetadataLoader loads timestamps with unknown timestamps as UTC.
+  static getLocalTimeMS(creationDate: number, creationDateOffset: string) {
+    const offsetMinutes = Utils.getOffsetMinutes(creationDateOffset);
+    return creationDate + (offsetMinutes ? (offsetMinutes * 60000) : 0);
+  }
+
+  //Like getLocalTimeMS, but only if localTime is true, otherwise just returns creationDate (global time)
+  static getTimeMS(creationDate: number, creationDateOffset: string, localTime: boolean) {
+    if (localTime) {
+      return Utils.getLocalTimeMS(creationDate, creationDateOffset);
+    } else {
+      return creationDate;
+    }
+  }
+  
+  static isLeapYear(year: number) {
+    return (0 == year % 4) && (0 != year % 100) || (0 == year % 400)
+  }
+
+  static isDateFromLeapYear(date: Date) {
+    return Utils.isLeapYear(date.getFullYear());
+  }
+
+  // Get Day of Year
+  static getDayOfYear(date: Date) {
+    //Day-number at the start of Jan to Dec. A month baseline
+    const dayCount = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    const mn = date.getMonth();
+    let dayOfYear = dayCount[mn] + date.getDate(); //add the date to the month baseline
+    if (mn > 1 && Utils.isLeapYear((date.getFullYear()))) {
+      dayOfYear++; //Add an extra day for march to december (mn>1) on leap years
+    }
+    return dayOfYear;
+  }
+
+  //Adding months to a date differently from standard JS
+  //this function makes sure that if date is the 31st and you add a month, you will get the last day of the next month
+  //so adding or subtracting a month from 31st of march will give 30th of april or 28th of february respectively (29th on leap years).
+  static addMonthToDate(date: Date, numMonths: number) {
+    const result = new Date(date)
+    const expectedMonth = ((date.getMonth() + numMonths) % 12 + 12) % 12; //inner %12 + 12 makes correct handling of negative months
+    result.setMonth(result.getMonth() + numMonths);
+    if (result.getMonth() !== expectedMonth) {
+      result.setDate(0);
+    }
+    return result;
+  }
+
   static renderDataSize(size: number): string {
     const postFixes = ['B', 'KB', 'MB', 'GB', 'TB'];
     let index = 0;
@@ -95,6 +283,10 @@ export class Utils {
       index++;
     }
     return size.toFixed(2) + postFixes[index];
+  }
+
+  static getUnique(arr: any[]) {
+    return arr.filter((value, index, arr) => arr.indexOf(value) === index);
   }
 
   static createRange(from: number, to: number): Array<number> {
@@ -126,7 +318,7 @@ export class Utils {
 
       url += part + '/';
     }
-    url = url.replace(new RegExp('/+', 'g'), '/');
+    url = url.replace(/(https?:\/\/)|(\/){2,}/g, '$1$2');
 
     if (url.trim() === '') {
       url = './';
@@ -171,6 +363,10 @@ export class Utils {
     });
   }
 
+  public static isValidEnumInt(EnumType: any, value: number) {
+    return typeof EnumType[value] === 'string';
+  }
+
   public static enumToArray(EnumType: any): { key: number; value: string }[] {
     const arr: Array<{ key: number; value: string }> = [];
     for (const enumMember in EnumType) {
@@ -180,7 +376,7 @@ export class Utils {
       }
       const key = parseInt(enumMember, 10);
       if (key >= 0) {
-        arr.push({ key, value: EnumType[enumMember] });
+        arr.push({key, value: EnumType[enumMember]});
       }
     }
     return arr;
@@ -216,6 +412,31 @@ export class Utils {
 
     return curr;
   }
+
+  public static asciiToUTF8(text: string): string {
+    if (text) {
+      return Buffer.from(text, 'ascii').toString('utf-8');
+    } else {
+      return text;
+    }
+  }
+
+
+
+  public static decodeHTMLChars(text: string): string {
+    if (text) {
+      const newtext = text.replace(/&#([0-9]{1,3});/gi, function (match, numStr) {
+        return String.fromCharCode(parseInt(numStr, 10));
+      });
+      return newtext.replace(/&[^;]+;/g, function (match) {
+        const char = HTMLChar[match];
+        return char ? char : match;
+      });
+    } else {
+      return text;
+    }
+  }
+
 
   public static isUInt32(value: number, max = 4294967295): boolean {
     value = parseInt('' + value, 10);
@@ -256,15 +477,40 @@ export class Utils {
     }
     return ret;
   }
+
+  public static xmpExifGpsCoordinateToDecimalDegrees(text: string): number {
+    if (!text) {
+      return undefined;
+    }
+    const parts = text.match(/^([0-9]+),([0-9.]+)([EWNS])$/);
+    const degrees: number = parseInt(parts[1], 10);
+    const minutes: number = parseFloat(parts[2]);
+    const sign = (parts[3] === "N" || parts[3] === "E") ? 1 : -1;
+    return (sign * (degrees + (minutes / 60.0)))
+  }
+
+
+  public static sortableFilename(filename: string): string {
+    const lastDot = filename.lastIndexOf(".");
+
+    // Avoid 0 as well as -1 to prevent empty names for extensionless dot-files
+    if (lastDot > 0) {
+      return filename.substring(0, lastDot);
+    }
+
+    // Fallback to the full name
+    return filename;
+  }
 }
 
 export class LRU<V> {
   data: { [key: string]: { value: V; usage: number } } = {};
 
-  constructor(public readonly size: number) {}
+  constructor(public readonly size: number) {
+  }
 
   set(key: string, value: V): void {
-    this.data[key] = { usage: Date.now(), value };
+    this.data[key] = {usage: Date.now(), value};
     if (Object.keys(this.data).length > this.size) {
       let oldestK = key;
       let oldest = this.data[oldestK].usage;

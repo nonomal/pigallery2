@@ -1,17 +1,10 @@
-import {
-  Component,
-  ElementRef,
-  EventEmitter,
-  Input,
-  OnChanges,
-  Output,
-  ViewChild,
-} from '@angular/core';
+import {Component, ElementRef, EventEmitter, Input, OnChanges, Output, ViewChild,} from '@angular/core';
 import {GridMedia} from '../../grid/GridMedia';
 import {MediaDTOUtils} from '../../../../../../common/entities/MediaDTO';
 import {DomSanitizer, SafeStyle} from '@angular/platform-browser';
 import {SupportedFormats} from '../../../../../../common/SupportedFormats';
 import {Config} from '../../../../../../common/config/public/Config';
+import {LightboxService} from '../lightbox.service';
 
 @Component({
   selector: 'app-gallery-lightbox-media',
@@ -48,7 +41,9 @@ export class GalleryLightboxMediaComponent implements OnChanges {
   private mediaLoaded = false;
   private videoProgress = 0;
 
-  constructor(public elementRef: ElementRef, private sanitizer: DomSanitizer) {
+  constructor(public elementRef: ElementRef,
+              public lightboxService: LightboxService,
+              private sanitizer: DomSanitizer) {
   }
 
   get ImageTransform(): SafeStyle {
@@ -128,7 +123,9 @@ export class GalleryLightboxMediaComponent implements OnChanges {
       this.prevGirdPhoto = this.gridMedia;
       this.thumbnailSrc = null;
       this.photo.src = null;
-      this.nextImage.src = "";
+      this.nextImage.src = '';
+      this.nextImage.onload = null;
+      this.nextImage.onerror = null;
       this.mediaLoaded = false;
       this.imageLoadFinished = {
         this: false,
@@ -171,7 +168,7 @@ export class GalleryLightboxMediaComponent implements OnChanges {
     this.imageLoadFinished.this = true;
     console.error(
       'Error: cannot load media for lightbox url: ' +
-      this.gridMedia.getBestFitMediaPath()
+      this.gridMedia.getBestSizedMediaPath(window.innerWidth, window.innerHeight)
     );
     this.loadNextPhoto();
   }
@@ -211,13 +208,17 @@ export class GalleryLightboxMediaComponent implements OnChanges {
       this.imageLoadFinished.next = true;
       return;
     }
-    if (Config.Client.Media.Photo.Converting.enabled === true) {
-      this.nextImage.src = this.nextGridMedia.getBestFitMediaPath();
-    } else {
-      this.nextImage.src = this.nextGridMedia.getMediaPath();
-    }
-    this.nextImage.onload = () => this.imageLoadFinished.next = true;
+    this.nextImage.src = this.nextGridMedia.getBestSizedMediaPath(window.innerWidth, window.innerHeight);
 
+    this.nextImage.onload = () => this.imageLoadFinished.next = true;
+    this.nextImage.onerror = () => {
+      console.error('Cant preload:' + this.nextImage.src);
+      this.imageLoadFinished.next = true;
+    };
+
+    if (this.nextImage.complete) {
+      this.imageLoadFinished.next = true;
+    }
   }
 
   private loadPhoto(): void {
@@ -227,20 +228,15 @@ export class GalleryLightboxMediaComponent implements OnChanges {
 
     if (
       this.zoom === 1 ||
-      Config.Client.Media.Photo.loadFullImageOnZoom === false
+      Config.Gallery.Lightbox.loadFullImageOnZoom === false
     ) {
       if (this.photo.src == null) {
-        if (Config.Client.Media.Photo.Converting.enabled === true) {
-          this.photo.src = this.gridMedia.getBestFitMediaPath();
-          this.photo.isBestFit = true;
-        } else {
-          this.photo.src = this.gridMedia.getMediaPath();
-          this.photo.isBestFit = false;
-        }
+        this.photo.src = this.gridMedia.getBestSizedMediaPath(window.innerWidth, window.innerHeight);
+        this.photo.isBestFit = true;
       }
       // on zoom load high res photo
     } else if (this.photo.isBestFit === true || this.photo.src == null) {
-      this.photo.src = this.gridMedia.getMediaPath();
+      this.photo.src = this.gridMedia.getOriginalMediaPath();
       this.photo.isBestFit = false;
     }
   }

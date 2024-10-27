@@ -16,25 +16,17 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [16.x]
-
-    services:
-       mariadb:
-          image: mariadb:latest
-          ports:
-            - 3306
-          env:
-            MYSQL_USER: user
-            MYSQL_PASSWORD: password
-            MYSQL_DATABASE: pigallery_test
-            MYSQL_ROOT_PASSWORD: password
-          options: --health-cmd="mysqladmin ping" --health-interval=5s --health-timeout=2s --health-retries=3
-
-
+        node-version: [18.x]
     steps:
-    - uses: actions/checkout@v2
+    - uses: getong/mariadb-action@v1.11
+      with:
+        mysql database: 'pigallery_test'
+        mysql root password: 'password'
+        mysql user: 'user'
+        mysql password: 'password'
+    - uses: actions/checkout@v4
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v2
+      uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
 
@@ -57,6 +49,7 @@ jobs:
     - name: test
       run: |
         npm test
+        npm run coverage
       env:
         MYSQL_HOST: localhost
         MYSQL_USERNAME: root
@@ -64,6 +57,21 @@ jobs:
         MYSQL_PORT: ${{ job.services.mariadb.ports[3306] }}
         PORT: 35000
         CI: true
+    - name: Coveralls
+      uses: coverallsapp/github-action@v2
+    - name: E2E test - Cypress run
+      uses: cypress-io/github-action@v6
+      env:
+        DEBUG: '@cypress/github-action'
+      with:
+        start: npm run start-e2e-server
+      # after the test run completes store screenshots
+    - uses: actions/upload-artifact@v3
+      if: failure() # Store screenshots only on failures
+      with:
+         name: cypress-screenshots
+         path: test/cypress/screenshots
+         if-no-files-found: ignore # 'warn' or 'error' are also available, defaults to `warn`
 
   create-release:
     runs-on: [ubuntu-latest]
@@ -71,19 +79,19 @@ jobs:
     steps:
       -
         name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       -
         name: Setup Node.js for use with actions
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
-          node-version: 12
+          node-version: 18
       -
         name: Install Deps
         run: npm install --unsafe-perm
       -
         name: Create Release
         run: npm run create-release -- --skip-opt-packages=ffmpeg-static,ffprobe-static --force-opt-packages
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4
         with:
           name: pigallery2-release
           path: release
@@ -92,81 +100,79 @@ jobs:
     needs: [ create-release ]
     strategy:
       matrix:
-        container: [alpine, debian-buster, debian-bullseye ]
+        container: [alpine,  debian-bullseye, debian-bookworm ]
         include:
           - container: alpine
-            platforms: linux/amd64,linux/arm64
-          - container: debian-buster
             platforms: linux/amd64,linux/arm64,linux/arm/v7
           - container: debian-bullseye
             platforms: linux/amd64,linux/arm64,linux/arm/v7
+          - container: debian-bookworm
+            platforms: linux/amd64,linux/arm64,linux/arm/v7
 
     steps:
-      - name: Set tag
-        id: vars
-        run: echo ::set-output name=tag::$(echo ${GITHUB_REF:10}) && echo ::set-output name=type::$(echo ${GITHUB_REF:5})
       - name: Checkout
-        uses: actions/checkout@v2
-      - uses: actions/download-artifact@v2
+        uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
           name: pigallery2-release
           path: pigallery2-release
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
+        uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v3
       - name: Login to DockerHub
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
       - name: Build docker
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: docker/${{ matrix.container }}/Dockerfile.build
           platforms: ${{ matrix.platforms }}
       - name: Push experimental
         if: ${{ github.ref == 'refs/heads/experimental' }}
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: docker/${{ matrix.container }}/Dockerfile.build
           platforms: ${{ matrix.platforms }}
           push: true
           tags: bpatrik/pigallery2:experimental-${{ matrix.container }}
-      - name: Push nightly on new master commit
-        if: ${{ startsWith(steps.vars.outputs.type , 'head') &&  !github.event.issue.pull_request && github.ref == 'refs/heads/master' }}
-        uses: docker/build-push-action@v2
+      - name: Push edge on new master commit
+        # github.ref:  branches the format is refs/heads/<branch_name>  PRs and Tags are different
+        if: ${{github.ref == 'refs/heads/master' }}
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: docker/${{ matrix.container }}/Dockerfile.build
           platforms: ${{ matrix.platforms }}
           push: true
-          tags: bpatrik/pigallery2:nightly-${{ matrix.container }}
+          tags: bpatrik/pigallery2:edge-${{ matrix.container }}
       - name: Push release on new Tag
-        if: ${{ startsWith(steps.vars.outputs.type , 'tag') &&  !github.event.issue.pull_request &&  matrix.container != 'debian-buster'}}
-        uses: docker/build-push-action@v2
+        if: ${{ startsWith(github.ref_type , 'tag') &&  !github.event.issue.pull_request &&  matrix.container != 'debian-bookworm'}}
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: docker/${{ matrix.container }}/Dockerfile.build
           platforms: ${{ matrix.platforms }}
           push: true
           tags: |
-            bpatrik/pigallery2:nightly-${{ matrix.container }}
-            bpatrik/pigallery2:${{ steps.vars.outputs.tag }}-${{ matrix.container }}
+            bpatrik/pigallery2:edge-${{ matrix.container }}
+            bpatrik/pigallery2:${{ github.ref_name }}-${{ matrix.container }}
             bpatrik/pigallery2:latest-${{ matrix.container }}
       - name: Push latest on new Tag
-        if: ${{ startsWith(steps.vars.outputs.type , 'tag') &&  !github.event.issue.pull_request &&  matrix.container == 'debian-buster'}}
-        uses: docker/build-push-action@v2
+        if: ${{ startsWith(github.ref_type, 'tag') &&  !github.event.issue.pull_request &&  matrix.container == 'debian-bookworm'}}
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: docker/${{ matrix.container }}/Dockerfile.build
           platforms: ${{ matrix.platforms }}
           push: true
           tags: |
-            bpatrik/pigallery2:nightly-${{ matrix.container }}
-            bpatrik/pigallery2:${{ steps.vars.outputs.tag }}-${{ matrix.container }}
+            bpatrik/pigallery2:edge-${{ matrix.container }}
+            bpatrik/pigallery2:${{ github.ref_name }}-${{ matrix.container }}
             bpatrik/pigallery2:latest-${{ matrix.container }}
-            bpatrik/pigallery2:${{ steps.vars.outputs.tag }}
+            bpatrik/pigallery2:${{ github.ref_name }}
             bpatrik/pigallery2:latest

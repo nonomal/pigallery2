@@ -1,34 +1,41 @@
-import { backendText } from '../../BackendTexts';
-
-export type fieldType = 'string' | 'number' | 'boolean' | 'number-array';
+import {DynamicConfig} from '../DynamicConfig';
 
 export enum DefaultsJobs {
   Indexing = 1,
-  'Database Reset' = 2,
+  'Gallery Reset' = 2,
   'Video Converting' = 3,
-  'Photo Converting' = 4,
-  'Thumbnail Generation' = 5,
+  'Photo Converting' = 5,
   'Temp Folder Cleaning' = 6,
-  'Preview Filling' = 7,
-  'Preview Reset' = 8,
+  'Album Cover Filling' = 7,
+  'Album Cover Reset' = 8,
   'GPX Compression' = 9,
+  'Album Reset' = 10,
+  'Delete Compressed GPX' = 11,
+  'Top Pick Sending' = 12
 }
 
-export interface ConfigTemplateEntry {
-  id: string;
-  name: backendText;
-  description: backendText;
-  type: fieldType;
-  defaultValue: any;
+
+export enum DefaultMessengers {
+  Email = 1,
+  Stdout = 2
 }
+
 
 export interface JobDTO {
   Name: string;
-  ConfigTemplate: ConfigTemplateEntry[];
+  ConfigTemplate: DynamicConfig[];
+}
+
+
+export interface JobStartDTO {
+  soloRun: boolean;
+  config?: Record<string, unknown>;
+  allowParallelRun: boolean;
 }
 
 export const JobDTOUtils = {
   getHashName: (jobName: string, config: any = {}) => {
-    return jobName + '-' + JSON.stringify(config);
+    const sorted = Object.keys(config).sort().reduce((ret, key) => `${ret},${key}:${JSON.stringify(config[key])}`, '');
+    return jobName + '-' + JSON.stringify(sorted);
   },
 };

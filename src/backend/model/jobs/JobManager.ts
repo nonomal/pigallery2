@@ -1,30 +1,24 @@
-import { IJobManager } from '../database/interfaces/IJobManager';
-import {
-  JobProgressDTO,
-  JobProgressStates,
-} from '../../../common/entities/job/JobProgressDTO';
-import { IJob } from './jobs/IJob';
-import { JobRepository } from './JobRepository';
-import { Config } from '../../../common/config/private/Config';
-import {
-  AfterJobTrigger,
-  JobScheduleDTO,
-  JobScheduleDTOUtils,
-  JobTriggerType,
-} from '../../../common/entities/job/JobScheduleDTO';
-import { Logger } from '../../Logger';
-import { NotificationManager } from '../NotifocationManager';
-import { IJobListener } from './jobs/IJobListener';
-import { JobProgress } from './jobs/JobProgress';
-import { JobProgressManager } from './JobProgressManager';
+import {JobProgressStates, OnTimerJobProgressDTO,} from '../../../common/entities/job/JobProgressDTO';
+import {IJob} from './jobs/IJob';
+import {JobRepository} from './JobRepository';
+import {Config} from '../../../common/config/private/Config';
+import {AfterJobTrigger, JobScheduleDTO, JobScheduleDTOUtils, JobTriggerType,} from '../../../common/entities/job/JobScheduleDTO';
+import {Logger} from '../../Logger';
+import {NotificationManager} from '../NotifocationManager';
+import {IJobListener} from './jobs/IJobListener';
+import {JobProgress} from './jobs/JobProgress';
+import {JobProgressManager} from './JobProgressManager';
+import {JobDTOUtils} from '../../../common/entities/job/JobDTO';
+import {Utils} from '../../../common/Utils';
+import {IObjectManager} from '../database/IObjectManager';
 
 const LOG_TAG = '[JobManager]';
 
-export class JobManager implements IJobManager, IJobListener {
+export class JobManager implements IJobListener, IObjectManager {
   protected timers: { schedule: JobScheduleDTO; timer: NodeJS.Timeout }[] = [];
   protected progressManager: JobProgressManager = null;
 
-  constructor() {
+  async init(){
     this.progressManager = new JobProgressManager();
     this.runSchedules();
   }
@@ -45,11 +39,18 @@ export class JobManager implements IJobManager, IJobListener {
     );
   }
 
-  getProgresses(): { [id: string]: JobProgressDTO } {
-    return this.progressManager.Progresses;
+  public getProgresses(): { [id: string]: OnTimerJobProgressDTO } {
+    const prg = Utils.clone(this.progressManager.Progresses);
+    this.timers.forEach(t => {
+      if (!prg[JobDTOUtils.getHashName(t.schedule.jobName, t.schedule.config)]) {
+        return;
+      }
+      (prg[JobDTOUtils.getHashName(t.schedule.jobName, t.schedule.config)] as OnTimerJobProgressDTO).onTimer = true;
+    });
+    return prg;
   }
 
-  async run<T>(
+  public async run<T extends Record<string, unknown>>(
     jobName: string,
     config: T,
     soloRun: boolean,
@@ -59,7 +60,7 @@ export class JobManager implements IJobManager, IJobListener {
       (allowParallelRun === false && this.JobRunning === true) ||
       this.JobNoParallelRunning === true
     ) {
-      throw new Error("Can't start this job while another is running");
+      throw new Error('Can\'t start this job while another is running');
     }
 
     const t = this.findJob(jobName);
@@ -71,7 +72,7 @@ export class JobManager implements IJobManager, IJobListener {
     }
   }
 
-  stop(jobName: string): void {
+  public stop(jobName: string): void {
     const t = this.findJob(jobName);
     if (t) {
       t.cancel();
@@ -80,12 +81,12 @@ export class JobManager implements IJobManager, IJobListener {
     }
   }
 
-  onProgressUpdate = (progress: JobProgress): void => {
+  public onProgressUpdate = (progress: JobProgress): void => {
     this.progressManager.onJobProgressUpdate(progress.toDTO());
   };
 
   onJobFinished = async (
-    job: IJob<any>,
+    job: IJob,
     state: JobProgressStates,
     soloRun: boolean
   ): Promise<void> => {
@@ -93,11 +94,11 @@ export class JobManager implements IJobManager, IJobListener {
     if (state !== JobProgressStates.finished || soloRun === true) {
       return;
     }
-    const sch = Config.Server.Jobs.scheduled.find(
+    const sch = Config.Jobs.scheduled.find(
       (s): boolean => s.jobName === job.Name
     );
     if (sch) {
-      const children = Config.Server.Jobs.scheduled.filter(
+      const children = Config.Jobs.scheduled.filter(
         (s): boolean =>
           s.trigger.type === JobTriggerType.after &&
           (s.trigger as AfterJobTrigger).afterScheduleName === sch.name
@@ -120,11 +121,16 @@ export class JobManager implements IJobManager, IJobListener {
     }
   };
 
-  getAvailableJobs(): IJob<any>[] {
+  getAvailableJobs(): IJob[] {
     return JobRepository.Instance.getAvailableJobs();
   }
 
+  public async cleanUp() {
+    this.stopSchedules();
+  }
+
   public stopSchedules(): void {
+    Logger.silly(LOG_TAG, 'Stopping all schedules');
     this.timers.forEach((t): void => clearTimeout(t.timer));
     this.timers = [];
   }
@@ -135,10 +141,10 @@ export class JobManager implements IJobManager, IJobListener {
   public runSchedules(): void {
     this.stopSchedules();
     Logger.info(LOG_TAG, 'Running job schedules');
-    Config.Server.Jobs.scheduled.forEach((s): void => this.runSchedule(s));
+    Config.Jobs.scheduled.forEach((s): void => this.runSchedule(s));
   }
 
-  protected findJob<T = any>(jobName: string): IJob<T> {
+  protected findJob(jobName: string): IJob {
     return this.getAvailableJobs().find((t): boolean => t.Name === jobName);
   }
 
@@ -154,9 +160,9 @@ export class JobManager implements IJobManager, IJobListener {
       Logger.debug(
         LOG_TAG,
         'running schedule: ' +
-          schedule.jobName +
-          ' at ' +
-          nextDate.toLocaleString(undefined, { hour12: false })
+        schedule.jobName +
+        ' at ' +
+        nextDate.toLocaleString(undefined, {hour12: false})
       );
 
       const timer: NodeJS.Timeout = setTimeout(async (): Promise<void> => {
@@ -169,7 +175,7 @@ export class JobManager implements IJobManager, IJobListener {
         );
         this.runSchedule(schedule);
       }, nextDate.getTime() - Date.now());
-      this.timers.push({ schedule, timer });
+      this.timers.push({schedule, timer});
     } else {
       Logger.debug(LOG_TAG, 'skipping schedule:' + schedule.jobName);
     }

@@ -29,11 +29,12 @@ services:
     command: sh -c 'bin/wait-for pigallery-db:3306 -- --Server-Database-mysql-host=pigallery-db --Server-Database-mysql-username=pigallery2 --Server-Database-mysql-password=pigallery2_pass --Server-Database-mysql-database=pigallery2'
     container_name: pigallery2
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=production # set to 'debug' for full debug logging
+      # - NODE_OPTIONS=--enable-source-maps # enable source map support on the backend  for development
     volumes:
       - "./pigallery2/config:/app/data/config" # CHANGE ME
       - "db-data:/app/data/db"
-      - "./pigallery2/images:/app/data/images:ro" # CHANGE ME, ':ro' mean read-only
+      - "./pigallery2/images:/app/data/images:ro" # CHANGE ME, ':ro' means read-only
       - "./pigallery2/tmp:/app/data/tmp" # CHANGE ME
     expose:
       - "80"

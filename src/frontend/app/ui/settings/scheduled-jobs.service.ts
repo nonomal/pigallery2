@@ -1,17 +1,20 @@
 import {EventEmitter, Injectable} from '@angular/core';
 import {BehaviorSubject} from 'rxjs';
-import {JobProgressDTO, JobProgressStates,} from '../../../../common/entities/job/JobProgressDTO';
+import {JobProgressDTO, JobProgressStates, OnTimerJobProgressDTO,} from '../../../../common/entities/job/JobProgressDTO';
 import {NetworkService} from '../../model/network/network.service';
 import {JobScheduleDTO} from '../../../../common/entities/job/JobScheduleDTO';
-import {JobDTOUtils} from '../../../../common/entities/job/JobDTO';
+import {JobDTO, JobDTOUtils, JobStartDTO} from '../../../../common/entities/job/JobDTO';
 import {BackendtextService} from '../../model/backendtext.service';
 import {NotificationService} from '../../model/notification.service';
+import {DynamicConfig} from '../../../../common/entities/DynamicConfig';
 
 @Injectable()
 export class ScheduledJobsService {
-  public progress: BehaviorSubject<Record<string, JobProgressDTO>>;
+  public progress: BehaviorSubject<Record<string, OnTimerJobProgressDTO>>;
   public onJobFinish: EventEmitter<string> = new EventEmitter<string>();
   timer: number = null;
+  public availableJobs: BehaviorSubject<JobDTO[]>;
+  public availableMessengers: BehaviorSubject<string[]>;
   public jobStartingStopping: { [key: string]: boolean } = {};
   private subscribers = 0;
 
@@ -21,6 +24,45 @@ export class ScheduledJobsService {
     private backendTextService: BackendtextService
   ) {
     this.progress = new BehaviorSubject({});
+    this.availableJobs = new BehaviorSubject([]);
+    this.availableMessengers = new BehaviorSubject([]);
+  }
+
+  public  isValidJob(name: string): boolean {
+    return !!this.availableJobs.value.find(j => j.Name === name);
+  }
+
+  public async getAvailableJobs(): Promise<void> {
+    this.availableJobs.next(
+      await this.networkService.getJson<JobDTO[]>('/admin/jobs/available')
+    );
+  }
+
+  public async getAvailableMessengers(): Promise<void> {
+    this.availableMessengers.next(
+      await this.networkService.getJson<string[]>('/admin/messengers/available')
+    );
+  }
+
+  public getConfigTemplate(JobName: string): DynamicConfig[] {
+    const job = this.availableJobs.value.find(
+      (t) => t.Name === JobName
+    );
+    if (job && job.ConfigTemplate && job.ConfigTemplate.length > 0) {
+      return job.ConfigTemplate;
+    }
+    return null;
+  }
+
+  public getDefaultConfig(jobName: string): Record<string, unknown> {
+
+    const ct = this.getConfigTemplate(jobName);
+    if (!ct) {
+      return null;
+    }
+    const config = {} as Record<string, unknown>;
+    ct.forEach(c => config[c.id] = c.defaultValue);
+    return config;
   }
 
   getProgress(schedule: JobScheduleDTO): JobProgressDTO {
@@ -43,8 +85,8 @@ export class ScheduledJobsService {
 
   public async start(
     jobName: string,
-    config?: any,
-    soloStart = false,
+    config?: Record<string, unknown>,
+    soloRun = false,
     allowParallelRun = false
   ): Promise<void> {
     try {
@@ -54,8 +96,8 @@ export class ScheduledJobsService {
         {
           config,
           allowParallelRun,
-          soloStart,
-        }
+          soloRun,
+        } as JobStartDTO
       );
       // placeholder to force showing running job
       this.addDummyProgress(jobName, config);
@@ -94,13 +136,27 @@ export class ScheduledJobsService {
           ))
       ) {
         this.onJobFinish.emit(prg);
-        this.notification.success(
-          $localize`Job finished` +
-          ': ' +
-          this.backendTextService.getJobName(prevPrg[prg].jobName)
-        );
+        if (this.progress.value[prg].state === JobProgressStates.failed) {
+          this.notification.warning(
+            $localize`Job failed` +
+            ': ' +
+            this.backendTextService.getJobName(prevPrg[prg].jobName)
+          );
+        } else {
+          this.notification.success(
+            $localize`Job finished` +
+            ': ' +
+            this.backendTextService.getJobName(prevPrg[prg].jobName)
+          );
+        }
       }
     }
+  }
+
+  protected isAnyJobRunning(): boolean {
+    return Object.values(this.progress.value)
+      .findIndex(p => p.state === JobProgressStates.running ||
+        p.state === JobProgressStates.cancelling) !== -1;
   }
 
   protected getProgressPeriodically(): void {
@@ -108,8 +164,8 @@ export class ScheduledJobsService {
       return;
     }
     let repeatTime = 5000;
-    if (Object.values(this.progress.value).length === 0) {
-      repeatTime = 10000;
+    if (!this.isAnyJobRunning()) {
+      repeatTime = 15000;
     }
     this.timer = window.setTimeout(async () => {
       this.timer = null;

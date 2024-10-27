@@ -1,20 +1,17 @@
-import { Logger } from '../../../Logger';
-import { IJob } from './IJob';
-import {
-  ConfigTemplateEntry,
-  JobDTO,
-  JobDTOUtils,
-} from '../../../../common/entities/job/JobDTO';
-import { JobProgress } from './JobProgress';
-import { IJobListener } from './IJobListener';
-import { JobProgressStates } from '../../../../common/entities/job/JobProgressDTO';
+import {Logger} from '../../../Logger';
+import {IJob} from './IJob';
+import {JobDTO, JobDTOUtils} from '../../../../common/entities/job/JobDTO';
+import {JobProgress} from './JobProgress';
+import {IJobListener} from './IJobListener';
+import {JobProgressStates} from '../../../../common/entities/job/JobProgressDTO';
+import {DynamicConfig} from '../../../../common/entities/DynamicConfig';
 
-declare const process: any;
-declare const global: any;
+declare const process: { nextTick: (_: unknown) => void };
+declare const global: { gc: () => void };
 
 const LOG_TAG = '[JOB]';
 
-export abstract class Job<T = void> implements IJob<T> {
+export abstract class Job<T extends Record<string, unknown> = Record<string, unknown>> implements IJob<T> {
   public allowParallelRun: boolean = null;
   protected progress: JobProgress = null;
   protected config: T;
@@ -31,7 +28,7 @@ export abstract class Job<T = void> implements IJob<T> {
 
   public abstract get Name(): string;
 
-  public abstract get ConfigTemplate(): ConfigTemplateEntry[];
+  public abstract get ConfigTemplate(): DynamicConfig[];
 
   public get Progress(): JobProgress {
     return this.progress;
@@ -57,7 +54,15 @@ export abstract class Job<T = void> implements IJob<T> {
       );
       this.soloRun = soloRun;
       this.allowParallelRun = allowParallelRun;
-      this.config = config;
+      this.config = {} as T;
+      if (this.ConfigTemplate) {
+        this.ConfigTemplate.forEach(ct => (this.config as Record<string, unknown>)[ct.id] = ct.defaultValue);
+      }
+      if (config) {
+        for (const key of Object.keys(config)) {
+          (this.config as Record<string, unknown>)[key] = config[key];
+        }
+      }
       this.progress = new JobProgress(
         this.Name,
         JobDTOUtils.getHashName(this.Name, this.config)
@@ -130,6 +135,7 @@ export abstract class Job<T = void> implements IJob<T> {
   }
 
   private run(): void {
+    // we call setImmediate later.
     process.nextTick(async (): Promise<void> => {
       try {
         if (
@@ -144,9 +150,15 @@ export abstract class Job<T = void> implements IJob<T> {
           this.onFinish();
           return;
         }
+        // giving back the control to the main event loop (Macrotask queue)
+        // https://blog.insiderattack.net/promises-next-ticks-and-immediates-nodejs-event-loop-part-3-9226cbe7a6aa
+        await new Promise(setImmediate);
         this.run();
       } catch (e) {
+        Logger.error(LOG_TAG, 'Job failed with:');
         Logger.error(LOG_TAG, e);
+        this.Progress.log('Failed with: ' + (typeof e.toString === 'function') ? e.toString() : JSON.stringify(e));
+        this.Progress.State = JobProgressStates.failed;
       }
     });
   }

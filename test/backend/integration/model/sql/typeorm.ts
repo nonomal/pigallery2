@@ -2,39 +2,39 @@ import {expect} from 'chai';
 import * as path from 'path';
 import * as fs from 'fs';
 import {Config} from '../../../../../src/common/config/private/Config';
-import {SQLConnection} from '../../../../../src/backend/model/database/sql/SQLConnection';
-import {UserEntity} from '../../../../../src/backend/model/database/sql/enitites/UserEntity';
+import {SQLConnection} from '../../../../../src/backend/model/database/SQLConnection';
+import {UserEntity} from '../../../../../src/backend/model/database/enitites/UserEntity';
 import {UserRoles} from '../../../../../src/common/entities/UserDTO';
 import {PasswordHelper} from '../../../../../src/backend/model/PasswordHelper';
-import {DirectoryEntity} from '../../../../../src/backend/model/database/sql/enitites/DirectoryEntity';
-import {PhotoEntity, PhotoMetadataEntity} from '../../../../../src/backend/model/database/sql/enitites/PhotoEntity';
+import {DirectoryEntity} from '../../../../../src/backend/model/database/enitites/DirectoryEntity';
+import {PhotoEntity, PhotoMetadataEntity} from '../../../../../src/backend/model/database/enitites/PhotoEntity';
 import {
   CameraMetadataEntity,
   GPSMetadataEntity,
   MediaDimensionEntity,
   PositionMetaDataEntity
-} from '../../../../../src/backend/model/database/sql/enitites/MediaEntity';
-import {VersionEntity} from '../../../../../src/backend/model/database/sql/enitites/VersionEntity';
+} from '../../../../../src/backend/model/database/enitites/MediaEntity';
+import {VersionEntity} from '../../../../../src/backend/model/database/enitites/VersionEntity';
 import {DatabaseType} from '../../../../../src/common/config/private/PrivateConfig';
 import {ProjectPath} from '../../../../../src/backend/ProjectPath';
+import {TestHelper} from '../../../../TestHelper';
 
 
 describe('Typeorm integration', () => {
 
 
-  const tempDir = path.join(__dirname, '../../tmp');
   const setUpSqlDB = async () => {
-    await fs.promises.rm(tempDir, {recursive: true, force: true});
+    await fs.promises.rm(TestHelper.TMP_DIR, {recursive: true, force: true});
 
-    Config.Server.Database.type = DatabaseType.sqlite;
-    Config.Server.Database.dbFolder = tempDir;
+    Config.Database.type = DatabaseType.sqlite;
+    Config.Database.dbFolder = TestHelper.TMP_DIR;
     ProjectPath.reset();
 
   };
 
   const teardownUpSqlDB = async () => {
     await SQLConnection.close();
-    await fs.promises.rm(tempDir, {recursive: true});
+    await fs.promises.rm(TestHelper.TMP_DIR, {recursive: true});
   };
 
   beforeEach(async () => {
@@ -46,7 +46,7 @@ describe('Typeorm integration', () => {
   });
 
 
-  const getDir = (namePrefix: string = '') => {
+  const getDir = (namePrefix = '') => {
     const d = new DirectoryEntity();
     d.name = namePrefix + 'test dir';
     d.path = '.';
@@ -173,7 +173,7 @@ describe('Typeorm integration', () => {
 
     const photos = await pr
       .createQueryBuilder('media')
-      .orderBy('media.metadata.creationDate', 'ASC')
+      .orderBy('media.metadata.creationDate', 'ASC') //TODO: Offset: Create a test where it is ".orderBy('media.metadata.creationDate + (media.metadata.creationDateOffset * 60000)', 'ASC')" instead
       .where('media.metadata.positionData.city LIKE :text COLLATE utf8_general_ci', {text: '%' + photo.metadata.positionData.city + '%'})
       .innerJoinAndSelect('media.directory', 'directory')
       .limit(10)
@@ -195,7 +195,7 @@ describe('Typeorm integration', () => {
     await pr.save(photo);
     const photos = await pr
       .createQueryBuilder('media')
-      .orderBy('media.metadata.creationDate', 'ASC')
+      .orderBy('media.metadata.creationDate', 'ASC') //TODO: Offset: Create a test where it is ".orderBy('media.metadata.creationDate + (media.metadata.creationDateOffset * 60000)', 'ASC')" instead
       .where('media.metadata.positionData.city LIKE :text COLLATE utf8_general_ci', {text: '%' + city + '%'})
       .innerJoinAndSelect('media.directory', 'directory')
       .limit(10)

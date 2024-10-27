@@ -1,14 +1,18 @@
 import {LocationManager} from '../../../../../src/backend/model/database/LocationManager';
-import {SearchManager} from '../../../../../src/backend/model/database/sql/SearchManager';
+import {SearchManager} from '../../../../../src/backend/model/database/SearchManager';
 import {SearchResultDTO} from '../../../../../src/common/entities/SearchResultDTO';
 import {Utils} from '../../../../../src/common/Utils';
 import {DBTestHelper} from '../../../DBTestHelper';
 import {
   ANDSearchQuery,
+  DatePatternFrequency,
+  DatePatternSearch,
   DistanceSearch,
   FromDateSearch,
+  MaxPersonCountSearch,
   MaxRatingSearch,
   MaxResolutionSearch,
+  MinPersonCountSearch,
   MinRatingSearch,
   MinResolutionSearch,
   OrientationSearch,
@@ -21,11 +25,11 @@ import {
   TextSearchQueryMatchTypes,
   ToDateSearch
 } from '../../../../../src/common/entities/SearchQueryDTO';
-import {IndexingManager} from '../../../../../src/backend/model/database/sql/IndexingManager';
+import {IndexingManager} from '../../../../../src/backend/model/database/IndexingManager';
 import {DirectoryBaseDTO, ParentDirectoryDTO, SubDirectoryDTO} from '../../../../../src/common/entities/DirectoryDTO';
 import {TestHelper} from '../../../../TestHelper';
 import {ObjectManagers} from '../../../../../src/backend/model/ObjectManagers';
-import {GalleryManager} from '../../../../../src/backend/model/database/sql/GalleryManager';
+import {GalleryManager} from '../../../../../src/backend/model/database/GalleryManager';
 import {Connection} from 'typeorm';
 import {GPSMetadata, PhotoDTO, PhotoMetadata} from '../../../../../src/common/entities/PhotoDTO';
 import {VideoDTO} from '../../../../../src/common/entities/VideoDTO';
@@ -33,8 +37,12 @@ import {AutoCompleteItem} from '../../../../../src/common/entities/AutoCompleteI
 import {Config} from '../../../../../src/common/config/private/Config';
 import {SearchQueryParser} from '../../../../../src/common/SearchQueryParser';
 import {FileDTO} from '../../../../../src/common/entities/FileDTO';
+import {SortByTypes} from '../../../../../src/common/entities/SortingMethods';
+import {LogLevel} from '../../../../../src/common/config/private/PrivateConfig';
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const deepEqualInAnyOrder = require('deep-equal-in-any-order');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const chai = require('chai');
 
 chai.use(deepEqualInAnyOrder);
@@ -65,12 +73,12 @@ class SearchManagerTest extends SearchManager {
 
 class GalleryManagerTest extends GalleryManager {
 
-  public async selectParentDir(connection: Connection, directoryName: string, directoryParent: string): Promise<ParentDirectoryDTO> {
-    return super.selectParentDir(connection, directoryName, directoryParent);
+  public async getDirIdAndTime(connection: Connection, directoryName: string, directoryParent: string) {
+    return super.getDirIdAndTime(connection, directoryName, directoryParent);
   }
 
-  public async fillParentDir(connection: Connection, dir: ParentDirectoryDTO): Promise<void> {
-    return super.fillParentDir(connection, dir);
+  public async getParentDirFromId(connection: Connection, dir: number): Promise<ParentDirectoryDTO> {
+    return super.getParentDirFromId(connection, dir);
   }
 }
 
@@ -96,6 +104,8 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
   let p2: PhotoDTO;
   let pFaceLess: PhotoDTO;
   let p4: PhotoDTO;
+//  let p5: PhotoDTO;
+  // let p6: PhotoDTO;
   let gpx: FileDTO;
 
 
@@ -104,43 +114,64 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
     subDir = TestHelper.getDirectoryEntry(directory, 'The Phantom Menace');
     subDir2 = TestHelper.getDirectoryEntry(directory, 'Return of the Jedi');
     p = TestHelper.getPhotoEntry1(directory);
+    p.metadata.creationDate = Date.now();
+    p.metadata.creationDateOffset = "+02:00";
     p2 = TestHelper.getPhotoEntry2(directory);
+    p2.metadata.creationDate = Date.now() - 60 * 60 * 24 * 1000;
+    p2.metadata.creationDateOffset = "+02:00";
     v = TestHelper.getVideoEntry1(directory);
+    v.metadata.creationDate = Date.now() - 60 * 60 * 24 * 7 * 1000;
+    v.metadata.creationDateOffset = "+02:00";
     gpx = TestHelper.getRandomizedGPXEntry(directory);
     p4 = TestHelper.getPhotoEntry4(subDir2);
+    let d = new Date();
+    //set creation date to one year and one day earlier
+    p4.metadata.creationDate = d.getTime() - 60 * 60 * 24 * (Utils.isDateFromLeapYear(d) ? 367 : 366) * 1000;
+    p4.metadata.creationDateOffset = "+02:00";
     const pFaceLessTmp = TestHelper.getPhotoEntry3(subDir);
     delete pFaceLessTmp.metadata.faces;
+    d = new Date();
+    //we create a date 1 month and 1 day before now
+    d = Utils.addMonthToDate(d, -1); //subtract 1 month in the "human way"
+    d.setDate(d.getDate()-1); //subtract 1 day
+    pFaceLessTmp.metadata.creationDate = d.getTime();
+    pFaceLessTmp.metadata.creationDateOffset = "+02:00";
 
     dir = await DBTestHelper.persistTestDir(directory);
-
     subDir = dir.directories[0];
     subDir2 = dir.directories[1];
     p = (dir.media.filter(m => m.name === p.name)[0] as any);
+    p.directory = dir;
     p2 = (dir.media.filter(m => m.name === p2.name)[0] as any);
+    p2.directory = dir;
     gpx = (dir.metaFile[0] as any);
+    gpx.directory = dir;
     v = (dir.media.filter(m => m.name === v.name)[0] as any);
+    v.directory = dir;
     p4 = (dir.directories[1].media[0] as any);
+    p4.directory = dir.directories[1];
     pFaceLess = (dir.directories[0].media[0] as any);
+    pFaceLess.directory = dir.directories[0];
   };
 
   const setUpSqlDB = async () => {
     await sqlHelper.initDB();
     await setUpTestGallery();
-    await ObjectManagers.InitSQLManagers();
+    await ObjectManagers.getInstance().init();
   };
 
 
   before(async () => {
     await setUpSqlDB();
-    Config.Client.Search.listDirectories = true;
-    Config.Client.Search.listMetafiles = false;
+    Config.Search.listDirectories = true;
+    Config.Search.listMetafiles = false;
   });
 
 
   after(async () => {
     await sqlHelper.clearDB();
-    Config.Client.Search.listDirectories = false;
-    Config.Client.Search.listMetafiles = false;
+    Config.Search.listDirectories = false;
+    Config.Search.listMetafiles = false;
   });
 
   it('should get autocomplete', async () => {
@@ -166,28 +197,23 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
     expect((await sm.autocomplete('arch', SearchQueryTypes.any_text))).eql([
       new AutoCompleteItem('Research City', SearchQueryTypes.position)]);
 
-    Config.Client.Search.AutoComplete.targetItemsPerCategory = 99999;
+    Config.Search.AutoComplete.ItemsPerCategory.maxItems = 99999;
     expect((await sm.autocomplete('wa', SearchQueryTypes.any_text))).to.deep.equalInAnyOrder([
       new AutoCompleteItem('star wars', SearchQueryTypes.keyword),
       new AutoCompleteItem('Anakin Skywalker', SearchQueryTypes.person),
       new AutoCompleteItem('Luke Skywalker', SearchQueryTypes.person),
       new AutoCompleteItem('wars dir', SearchQueryTypes.directory)]);
 
-    Config.Client.Search.AutoComplete.targetItemsPerCategory = 1;
+    Config.Search.AutoComplete.ItemsPerCategory.maxItems = 1;
     expect((await sm.autocomplete('a', SearchQueryTypes.any_text))).to.deep.equalInAnyOrder([
-      new AutoCompleteItem('Ajan Kloss', SearchQueryTypes.position),
-      new AutoCompleteItem('Tipoca City', SearchQueryTypes.position),
-      new AutoCompleteItem('Amber stone', SearchQueryTypes.caption),
-      new AutoCompleteItem('Millennium falcon', SearchQueryTypes.caption),
-      new AutoCompleteItem('star wars', SearchQueryTypes.keyword),
-      new AutoCompleteItem('Anakin Skywalker', SearchQueryTypes.person),
-      new AutoCompleteItem('Obivan Kenobi', SearchQueryTypes.person),
-      new AutoCompleteItem('Castilon', SearchQueryTypes.position),
-      new AutoCompleteItem('Devaron', SearchQueryTypes.position),
-      new AutoCompleteItem('Jedha', SearchQueryTypes.position),
-      new AutoCompleteItem('wars dir', SearchQueryTypes.directory),
-      new AutoCompleteItem('The Phantom Menace', SearchQueryTypes.directory)]);
-    Config.Client.Search.AutoComplete.targetItemsPerCategory = 5;
+      new AutoCompleteItem('Han Solo', SearchQueryTypes.person),
+      new AutoCompleteItem('Han Solo\'s dice', SearchQueryTypes.caption),
+      new AutoCompleteItem('Research City', SearchQueryTypes.position),
+      new AutoCompleteItem('death star', SearchQueryTypes.keyword),
+      new AutoCompleteItem('wars dir', SearchQueryTypes.directory)]);
+    Config.Search.AutoComplete.ItemsPerCategory.maxItems = 5;
+    Config.Search.AutoComplete.ItemsPerCategory.fileName = 5;
+    Config.Search.AutoComplete.ItemsPerCategory.fileName = 5;
 
     expect((await sm.autocomplete('sw', SearchQueryTypes.any_text))).to.deep.equalInAnyOrder([
       new AutoCompleteItem('sw1.jpg', SearchQueryTypes.file_name),
@@ -205,24 +231,26 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
     const tmpDir: DirectoryBaseDTO = m.directory as DirectoryBaseDTO;
     const tmpM = tmpDir.media;
     const tmpD = tmpDir.directories;
-    const tmpP = tmpDir.preview;
+    const tmpP = tmpDir.cover;
     const tmpMT = tmpDir.metaFile;
     delete tmpDir.directories;
     delete tmpDir.media;
-    delete tmpDir.preview;
-    delete tmpDir.validPreview;
+    delete tmpDir.cover;
+    delete tmpDir.validCover;
     delete tmpDir.metaFile;
     const ret = Utils.clone(m);
     delete (ret.directory as DirectoryBaseDTO).lastScanned;
     delete (ret.directory as DirectoryBaseDTO).lastModified;
     delete (ret.directory as DirectoryBaseDTO).mediaCount;
+    delete (ret.directory as DirectoryBaseDTO).youngestMedia;
+    delete (ret.directory as DirectoryBaseDTO).oldestMedia;
     if ((ret as PhotoDTO).metadata &&
       ((ret as PhotoDTO).metadata as PhotoMetadata).faces && !((ret as PhotoDTO).metadata as PhotoMetadata).faces.length) {
       delete ((ret as PhotoDTO).metadata as PhotoMetadata).faces;
     }
     tmpDir.directories = tmpD;
     tmpDir.media = tmpM;
-    tmpDir.preview = tmpP;
+    tmpDir.cover = tmpP;
     tmpDir.metaFile = tmpMT;
     return ret;
   };
@@ -230,7 +258,7 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
   const searchifyDir = (d: DirectoryBaseDTO): DirectoryBaseDTO => {
     const tmpM = d.media;
     const tmpD = d.directories;
-    const tmpP = d.preview;
+    const tmpP = d.cover;
     const tmpMT = d.metaFile;
     delete d.directories;
     delete d.media;
@@ -238,7 +266,7 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
     const ret = Utils.clone(d);
     d.directories = tmpD;
     d.media = tmpM;
-    d.preview = tmpP;
+    d.cover = tmpP;
     d.metaFile = tmpMT;
     ret.isPartial = true;
     return ret;
@@ -253,12 +281,12 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
 
   describe('advanced search', async () => {
     afterEach(async () => {
-      Config.Client.Search.listDirectories = false;
-      Config.Client.Search.listMetafiles = false;
+      Config.Search.listDirectories = false;
+      Config.Search.listMetafiles = false;
     });
     afterEach(async () => {
-      Config.Client.Search.listDirectories = false;
-      Config.Client.Search.listMetafiles = false;
+      Config.Search.listDirectories = false;
+      Config.Search.listMetafiles = false;
     });
 
     it('should AND', async () => {
@@ -413,7 +441,6 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
       } as SearchResultDTO));
 
     });
-
 
     it('should minimum of', async () => {
       const sm = new SearchManager();
@@ -868,14 +895,14 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
       } as SearchResultDTO));
 
       query = ({
-        value: p.metadata.creationDate, type: SearchQueryTypes.from_date
+        value: p2.metadata.creationDate, type: SearchQueryTypes.from_date
       } as FromDateSearch);
 
       expect(Utils.clone(await sm.search(query)))
         .to.deep.equalInAnyOrder(removeDir({
         searchQuery: query,
         directories: [],
-        media: [p, v],
+        media: [p, p2],
         metaFile: [],
         resultOverflow: false
       } as SearchResultDTO));
@@ -890,7 +917,7 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
         .to.deep.equalInAnyOrder(removeDir({
         searchQuery: query,
         directories: [],
-        media: [p2, pFaceLess, p4],
+        media: [p2, pFaceLess, p4, v],
         metaFile: [],
         resultOverflow: false
       } as SearchResultDTO));
@@ -910,7 +937,342 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
       } as SearchResultDTO));
 
     });
+    describe('search date pattern', async () => {
+      let p5: PhotoDTO;
+      let p6: PhotoDTO;
+      let p7: PhotoDTO;
+      let sm: SearchManager;
 
+      before(async () => {
+        await sqlHelper.clearDB();
+        await setUpSqlDB();
+        p5 = TestHelper.getBasePhotoEntry(subDir2, 'p5-23h-ago.jpg');
+        p5.metadata.creationDate = Date.now() - 60 * 60 * 24 * 1000 - 1000;
+        //p5.metadata.creationDateOffset = "+02:00";
+        p6 = TestHelper.getBasePhotoEntry(subDir2, 'p6-300d-ago.jpg');
+        p6.metadata.creationDate = Date.now() - 60 * 60 * 24 * 300 * 1000;
+        //p6.metadata.creationDateOffset = "+02:00";
+        p7 = TestHelper.getBasePhotoEntry(subDir2, 'p7-1y-1min-ago.jpg');
+        const d = new Date();
+        d.setUTCFullYear(d.getUTCFullYear() - 1);
+        d.setUTCMinutes(d.getUTCMinutes() - 1);
+        p7.metadata.creationDate = d.getTime();
+        //p7.metadata.creationDateOffset = "+02:00";
+
+        subDir2 = await DBTestHelper.persistTestDir(subDir2) as any;
+        p4 = subDir2.media[0];
+        p4.directory = subDir2;
+        p5 = subDir2.media[1];
+        p5.directory = subDir2;
+        p6 = subDir2.media[2];
+        p6.directory = subDir2;
+        p7 = subDir2.media[3];
+        p7.directory = subDir2;
+        Config.Search.listDirectories = false;
+        Config.Search.listMetafiles = false;
+
+        sm = new SearchManager();
+      });
+
+      //TODO: this is flaky test for mysql
+      it('last-0-days:every-year', async () => {
+
+
+        let query: DatePatternSearch = {
+          daysLength: 0,
+          frequency: DatePatternFrequency.every_year,
+          type: SearchQueryTypes.date_pattern
+        };
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p, p7],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+        query = {
+          daysLength: 0,
+          negate: true,
+          frequency: DatePatternFrequency.every_year,
+          type: SearchQueryTypes.date_pattern
+        };
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p2, p4, pFaceLess, v, p5, p6],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+      });
+
+      //TODO: this is flaky test for mysql
+      it('last-1-days:every-year', async () => {
+        let query: DatePatternSearch = {
+          daysLength: 1,
+          frequency: DatePatternFrequency.every_year,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p, p7],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+
+        query = {
+          daysLength: 1,
+          negate: true,
+          frequency: DatePatternFrequency.every_year,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p2, p4, pFaceLess, v, p5, p6],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+      });
+      it('last-2-days:every-year', async () => {
+        let query = {
+          daysLength: 2,
+          frequency: DatePatternFrequency.every_year,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p, p2, p4, p5, p7],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+        query = {
+          daysLength: 2,
+          negate: true,
+          frequency: DatePatternFrequency.every_year,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [v, pFaceLess, p6],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+      });
+      it('last-1-days:10-days-ago', async () => {
+
+        let query = {
+          daysLength: 1,
+          agoNumber: 10,
+          frequency: DatePatternFrequency.days_ago,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+
+        query = {
+          daysLength: 1,
+          agoNumber: 10,
+          negate: true,
+          frequency: DatePatternFrequency.days_ago,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p, p2, p4, pFaceLess, v, p5, p6, p7],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+      });
+      it('last-3-days:1-month-ago', async () => {
+        let query = {
+          daysLength: 3,
+          agoNumber: 1,
+          frequency: DatePatternFrequency.months_ago,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [pFaceLess],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+        query = {
+          daysLength: 3,
+          agoNumber: 1,
+          negate: true,
+          frequency: DatePatternFrequency.months_ago,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p, p2, p4, v, p5, p6, p7],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+      });
+
+      it('last-3-days:12-month-ago', async () => {
+        let query = {
+          daysLength: 3,
+          agoNumber: 12,
+          frequency: DatePatternFrequency.months_ago,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p4, p7],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+        query = {
+          daysLength: 3,
+          agoNumber: 12,
+          negate: true,
+          frequency: DatePatternFrequency.months_ago,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p, p2, v, p5, p6, pFaceLess],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+      });
+      it('last-366-days:every-year', async () => {
+        let query = {
+          daysLength: 366,
+          frequency: DatePatternFrequency.every_year,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p, p2, p4, pFaceLess, v, p5, p6, p7],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+        query = {
+          daysLength: 366,
+          negate: true,
+          frequency: DatePatternFrequency.every_year,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+      });
+      it('last-32-days:every-month', async () => {
+        const query = {
+          daysLength: 32,
+          frequency: DatePatternFrequency.every_month,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p, p2, p4, pFaceLess, v, p5, p6, p7],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+
+      });
+      it('last-364-days:every-year', async () => {
+        let query = {
+          daysLength: 364,
+          frequency: DatePatternFrequency.every_year,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [p, p2, p4, pFaceLess, v, p5, p6, p7],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+        query = {
+          daysLength: 364,
+          negate: true,
+          frequency: DatePatternFrequency.every_year,
+          type: SearchQueryTypes.date_pattern
+        } as DatePatternSearch;
+
+        expect(Utils.clone(await sm.search(query)))
+          .to.deep.equalInAnyOrder(removeDir({
+          searchQuery: query,
+          directories: [],
+          media: [],
+          metaFile: [],
+          resultOverflow: false
+        } as SearchResultDTO));
+
+
+      });
+    });
 
     it('should search rating', async () => {
       const sm = new SearchManager();
@@ -968,6 +1330,83 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
       } as SearchResultDTO));
     });
 
+
+    it('should search person count', async () => {
+      const sm = new SearchManager();
+
+      let query: MinPersonCountSearch | MaxPersonCountSearch = {value: 0, type: SearchQueryTypes.max_person_count} as MaxPersonCountSearch;
+
+
+      expect(Utils.clone(await sm.search(query)))
+        .to.deep.equalInAnyOrder(removeDir({
+        searchQuery: query,
+        directories: [],
+        media: [pFaceLess, v],
+        metaFile: [],
+        resultOverflow: false
+      } as SearchResultDTO));
+
+      query = ({value: 20, type: SearchQueryTypes.max_person_count} as MaxPersonCountSearch);
+      expect(Utils.clone(await sm.search(query)))
+        .to.deep.equalInAnyOrder(removeDir({
+        searchQuery: query,
+        directories: [],
+        media: [p, p2, pFaceLess, p4, v],
+        metaFile: [],
+        resultOverflow: false
+      } as SearchResultDTO));
+
+      query = ({value: 20, negate: true, type: SearchQueryTypes.max_person_count} as MaxPersonCountSearch);
+      expect(Utils.clone(await sm.search(query)))
+        .to.deep.equalInAnyOrder(removeDir({
+        searchQuery: query,
+        directories: [],
+        media: [],
+        metaFile: [],
+        resultOverflow: false
+      } as SearchResultDTO));
+
+
+      query = ({value: 4, type: SearchQueryTypes.max_person_count} as MaxPersonCountSearch);
+      expect(Utils.clone(await sm.search(query)))
+        .to.deep.equalInAnyOrder(removeDir({
+        searchQuery: query,
+        directories: [],
+        media: [p2, p4, pFaceLess, v],
+        metaFile: [],
+        resultOverflow: false
+      } as SearchResultDTO));
+
+      query = ({value: 2, type: SearchQueryTypes.min_person_count} as MinPersonCountSearch);
+      expect(Utils.clone(await sm.search(query)))
+        .to.deep.equalInAnyOrder(removeDir({
+        searchQuery: query,
+        directories: [],
+        media: [p, p2, p4],
+        metaFile: [],
+        resultOverflow: false
+      } as SearchResultDTO));
+
+      query = ({value: 5, type: SearchQueryTypes.min_person_count} as MinPersonCountSearch);
+      expect(Utils.clone(await sm.search(query)))
+        .to.deep.equalInAnyOrder(removeDir({
+        searchQuery: query,
+        directories: [],
+        media: [p],
+        metaFile: [],
+        resultOverflow: false
+      } as SearchResultDTO));
+
+      query = ({value: 2, negate: true, type: SearchQueryTypes.min_person_count} as MinPersonCountSearch);
+      expect(Utils.clone(await sm.search(query)))
+        .to.deep.equalInAnyOrder(removeDir({
+        searchQuery: query,
+        directories: [],
+        media: [v, pFaceLess],
+        metaFile: [],
+        resultOverflow: false
+      } as SearchResultDTO));
+    });
 
     it('should search resolution', async () => {
       const sm = new SearchManager();
@@ -1149,7 +1588,7 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
     });
 
     /**
-     * flattenSameOfQueries converts converts some-of querries to AND and OR queries
+     * flattenSameOfQueries  converts some-of queries to AND and OR queries
      * E.g.:
      * 2-of:(A B C) to (A and (B or C)) or (B and C)
      * this tests makes sure that all queries has at least 2 constraints
@@ -1169,13 +1608,8 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
             }
             return depth;
           }
-          // its an or
+          // it's an OR
           const lengths = (q as SearchListQuery).list.map(l => shortestDepth(l)).sort();
-
-          if (lengths[0] !== lengths[lengths.length - 1]) {
-            for (const l of (q as SearchListQuery).list) {
-            }
-          }
           return lengths[0];
         }
         return 1;
@@ -1230,12 +1664,12 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
     }) as any).timeout(40000);
 
     it('search result should return directory', async () => {
-      Config.Client.Search.listDirectories = true;
+      Config.Search.listDirectories = true;
       const sm = new SearchManager();
 
       const cloned = Utils.clone(searchifyDir(subDir));
-      cloned.validPreview = true;
-      cloned.preview = {
+      cloned.validCover = true;
+      cloned.cover = {
         directory: {
           name: subDir.name,
           path: subDir.path
@@ -1256,7 +1690,7 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
       } as SearchResultDTO));
     });
     it('search result should return meta files', async () => {
-      Config.Client.Search.listMetafiles = true;
+      Config.Search.listMetafiles = true;
       const sm = new SearchManager();
 
       const query = {
@@ -1286,14 +1720,17 @@ describe('SearchManager', (sqlHelper: DBTestHelper) => {
     } as TextSearch;
 
     // eslint-disable-next-line
-    expect(await sm.getRandomPhoto(query)).to.not.exist;
+    expect(await sm.getNMedia(query, [{method: SortByTypes.Random, ascending: null}], 1, true)).to.deep.equalInAnyOrder([]);
 
     query = ({
       text: 'wookiees',
       matchType: TextSearchQueryMatchTypes.exact_match,
       type: SearchQueryTypes.keyword
     } as TextSearch);
-    expect(Utils.clone(await sm.getRandomPhoto(query))).to.deep.equalInAnyOrder(searchifyMedia(pFaceLess));
+    expect(Utils.clone(await sm.getNMedia(query, [{
+      method: SortByTypes.Random,
+      ascending: null
+    }], 1, true))).to.deep.equalInAnyOrder([searchifyMedia(pFaceLess)]);
   });
 
 });

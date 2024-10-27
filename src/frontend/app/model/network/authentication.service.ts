@@ -16,35 +16,35 @@ declare module ServerInject {
   export let user: UserDTO;
 }
 
-@Injectable({ providedIn: 'root' })
+@Injectable({providedIn: 'root'})
 export class AuthenticationService {
   public readonly user: BehaviorSubject<UserDTO>;
 
   constructor(
-    private userService: UserService,
-    private networkService: NetworkService,
-    private shareService: ShareService,
-    private cookieService: CookieService
+      private userService: UserService,
+      private networkService: NetworkService,
+      private shareService: ShareService,
+      private cookieService: CookieService
   ) {
     this.user = new BehaviorSubject(null);
 
     // picking up session..
     if (
-      this.isAuthenticated() === false &&
-      this.cookieService.get(CookieNames.session) != null
+        this.isAuthenticated() === false &&
+        this.cookieService.get(CookieNames.session) != null
     ) {
       if (
-        typeof ServerInject !== 'undefined' &&
-        typeof ServerInject.user !== 'undefined'
+          typeof ServerInject !== 'undefined' &&
+          typeof ServerInject.user !== 'undefined'
       ) {
         this.user.next(ServerInject.user);
       }
       this.getSessionUser().catch(console.error);
     } else {
-      if (Config.Client.authenticationRequired === false) {
+      if (Config.Users.authenticationRequired === false) {
         this.user.next({
-          name: UserRoles[Config.Client.unAuthenticatedUserRole],
-          role: Config.Client.unAuthenticatedUserRole,
+          name: UserRoles[Config.Users.unAuthenticatedUserRole],
+          role: Config.Users.unAuthenticatedUserRole,
         } as UserDTO);
       }
     }
@@ -82,7 +82,7 @@ export class AuthenticationService {
   }
 
   public isAuthenticated(): boolean {
-    if (Config.Client.authenticationRequired === false) {
+    if (Config.Users.authenticationRequired === false) {
       return true;
     }
     return !!this.user.value;
@@ -93,7 +93,7 @@ export class AuthenticationService {
   }
 
   public canSearch(): boolean {
-    return this.isAuthorized(UserRoles.Guest);
+    return Config.Search.enabled && this.isAuthorized(UserRoles.Guest);
   }
 
   public async logout(): Promise<void> {

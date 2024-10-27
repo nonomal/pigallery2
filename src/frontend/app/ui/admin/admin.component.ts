@@ -4,11 +4,14 @@ import {UserRoles} from '../../../../common/entities/UserDTO';
 import {NotificationService} from '../../model/notification.service';
 import {NotificationType} from '../../../../common/entities/NotificationDTO';
 import {NavigationService} from '../../model/navigation.service';
-import {ISettingsComponent} from '../settings/_abstract/ISettingsComponent';
-import {PageHelper} from '../../model/page.helper';
-import {SettingsService} from '../settings/settings.service';
-import {CookieNames} from '../../../../common/CookieNames';
-import {CookieService} from 'ngx-cookie-service';
+import {ViewportScroller} from '@angular/common';
+import {ConfigStyle, SettingsService} from '../settings/settings.service';
+import {ConfigPriority} from '../../../../common/config/public/ClientConfig';
+import {WebConfig} from '../../../../common/config/private/WebConfig';
+import {ISettingsComponent} from '../settings/template/ISettingsComponent';
+import {WebConfigClassBuilder} from 'typeconfig/src/decorators/builders/WebConfigClassBuilder';
+import {enumToTranslatedArray} from '../EnumTranslations';
+import {PiTitleService} from '../../model/pi-title.service';
 
 @Component({
   selector: 'app-admin',
@@ -16,34 +19,33 @@ import {CookieService} from 'ngx-cookie-service';
   styleUrls: ['./admin.component.css'],
 })
 export class AdminComponent implements OnInit, AfterViewInit {
-  simplifiedMode = true;
   @ViewChildren('setting') settingsComponents: QueryList<ISettingsComponent>;
   @ViewChildren('setting', {read: ElementRef})
   settingsComponentsElemRef: QueryList<ElementRef>;
   contents: ISettingsComponent[] = [];
+  configPriorities: { key: number; value: string; }[];
+  configStyles: { key: number; value: string; }[];
+  public readonly ConfigPriority = ConfigPriority;
+  public readonly ConfigStyle = ConfigStyle;
+  public readonly configPaths: string[] = [];
 
   constructor(
     private authService: AuthenticationService,
     private navigation: NavigationService,
+    public viewportScroller: ViewportScroller,
     public notificationService: NotificationService,
     public settingsService: SettingsService,
-    private cookieService: CookieService
+    private piTitleService: PiTitleService
   ) {
-    if (this.cookieService.check(CookieNames.advancedSettings)) {
-      this.simplifiedMode = !(
-        this.cookieService.get(CookieNames.advancedSettings) === 'true'
-      );
-    }
+    this.configPriorities = enumToTranslatedArray(ConfigPriority);
+    this.configStyles = enumToTranslatedArray(ConfigStyle);
+    const wc = WebConfigClassBuilder.attachPrivateInterface(new WebConfig());
+    this.configPaths = Object.keys(wc.State)
+        .filter(s => !wc.__state[s].volatile);
   }
 
   ngAfterViewInit(): void {
     setTimeout(() => (this.contents = this.settingsComponents.toArray()), 0);
-  }
-
-  scrollTo(i: number): void {
-    PageHelper.ScrollY =
-      this.settingsComponentsElemRef
-        .toArray()[i].nativeElement.getBoundingClientRect().top + PageHelper.ScrollY;
   }
 
   ngOnInit(): void {
@@ -54,6 +56,7 @@ export class AdminComponent implements OnInit, AfterViewInit {
       this.navigation.toLogin();
       return;
     }
+    this.piTitleService.setTitle($localize`Admin`);
   }
 
   public getCss(type: NotificationType): string {
@@ -66,15 +69,6 @@ export class AdminComponent implements OnInit, AfterViewInit {
         return 'info';
     }
     return 'info';
-  }
-
-  modeToggle(): void {
-    // save it for some years
-    this.cookieService.set(
-      CookieNames.advancedSettings,
-      this.simplifiedMode ? 'false' : 'true',
-      365 * 50
-    );
   }
 }
 
